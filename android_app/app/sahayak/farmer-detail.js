@@ -355,14 +355,14 @@ export default function FarmerDetailScreen() {
                   : 'Complete site analysis first'}
               </Text>
 
-              <View className="flex-row items-center justify-between">
+              {/* <View className="flex-row items-center justify-between">
                 <Text className={`text-sm ${canRequestDevices() ? 'text-blue-600' : 'text-gray-400'}`}>
                   Click to setup password
                 </Text>
                 {canRequestDevices() && (
                   <FontAwesome name="chevron-right" size={16} color="#2563eb" />
                 )}
-              </View>
+              </View> */}
 
             </TouchableOpacity>
 
@@ -383,7 +383,7 @@ export default function FarmerDetailScreen() {
           </View> */}
 
           {/* Land Data (if available) */}
-          {farmer.landData && (
+          {/* {farmer.landData && (
             <View className="bg-white rounded-lg p-4 shadow-sm border border-gray-100">
               <Text className="text-lg font-semibold text-gray-800 mb-3">Land Details</Text>
               <View className="space-y-2">
@@ -392,7 +392,7 @@ export default function FarmerDetailScreen() {
                 <Text className="text-gray-700">Village: {farmer.landData.village}</Text>
               </View>
             </View>
-          )}
+          )} */}
         </View>
       </ScrollView>
 
