@@ -62,7 +62,7 @@ export default function RoleSelectionScreen() {
         <View className="w-20 h-20 bg-green-r700 rounded-full items-center justify-center mb-6">
           <Image source={require('../../assets/logo.png')} style={{ width: 60, height: 60 }} resizeMode="contain" />
         </View>
-        <Text className="text-2xl font-bold text-green-800 mb-2">Welcome to FarmApp</Text>
+        <Text className="text-2xl font-bold text-green-800 mb-2">Welcome to Smarthika</Text>
         <Text className="text-base text-green-600 text-center px-6">
           Choose your role to get started with personalized features
         </Text>
