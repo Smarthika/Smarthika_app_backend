@@ -1,15 +1,31 @@
 const mongoose = require('mongoose');
 
+let cached = global.mongoose;
+
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
+
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGO_URI, {
-      dbName: 'smarthikaDB',
-    });
+    if (cached.conn) {
+      return cached.conn;
+    }
 
-    console.log(` MongoDB Connected: ${conn.connection.host}`);
+    if (!cached.promise) {
+      cached.promise = mongoose.connect(process.env.MONGO_URI, {
+        dbName: 'smarthikaDB',
+      });
+    }
+
+    cached.conn = await cached.promise;
+
+    console.log(` MongoDB Connected: ${cached.conn.connection.host}`);
+    return cached.conn;
   } catch (error) {
+    cached.promise = null;
     console.error(' DB Error:', error.message);
-    process.exit(1);
+    throw error;
   }
 };
 
