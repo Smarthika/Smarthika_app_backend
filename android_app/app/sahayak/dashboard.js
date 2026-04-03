@@ -16,6 +16,20 @@ export default function SahayakDashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  const normalizeFlowStatus = (status) => {
+    const normalizedStatus = String(status || '').trim().toUpperCase();
+
+    if (
+      normalizedStatus === 'PENDING_SITE_ANALYSIS'
+      || normalizedStatus === 'SITE_ANALYSIS_PENDING'
+      || normalizedStatus === 'PENDING_ANALYSIS'
+    ) {
+      return 'PENDING_PASSWORD_SETUP';
+    }
+
+    return normalizedStatus || 'PENDING_KYC';
+  };
+
   useEffect(() => {
     loadFarmers();
   }, []);
@@ -48,8 +62,13 @@ export default function SahayakDashboard() {
       // Load farmers managed by this Sahayak
       const response = await SahayakService.getSahayakFarmers();
       if (response.success) {
-        setFarmers(response.farmers);
-        setFilteredFarmers(response.farmers);
+        const normalizedFarmers = (response.farmers || []).map((farmer) => ({
+          ...farmer,
+          status: normalizeFlowStatus(farmer?.status),
+        }));
+
+        setFarmers(normalizedFarmers);
+        setFilteredFarmers(normalizedFarmers);
       }
 
     } catch (error) {
@@ -67,7 +86,7 @@ export default function SahayakDashboard() {
   };
 
   const getStatusColor = (status) => {
-    switch (status) {
+    switch (normalizeFlowStatus(status)) {
       case 'APPROVED': return 'bg-green-100 text-green-800';
       case 'PENDING_KYC': return 'bg-red-100 text-red-800';
       case 'PENDING_LAND_VERIFICATION': return 'bg-yellow-100 text-yellow-800';
@@ -77,7 +96,7 @@ export default function SahayakDashboard() {
   };
 
   const getStatusIcon = (status) => {
-    switch (status) {
+    switch (normalizeFlowStatus(status)) {
       case 'APPROVED': return 'check-circle';
       case 'PENDING_KYC': return 'id-card';
       case 'PENDING_LAND_VERIFICATION': return 'map-marker';
@@ -86,7 +105,7 @@ export default function SahayakDashboard() {
     }
   };
 
-  const getDisplayStatus = (status) => status;
+  const getDisplayStatus = (status) => normalizeFlowStatus(status);
 
   const handleOnboardNewFarmer = () => {
     router.push('/sahayak/onboard-farmer');

@@ -1,6 +1,18 @@
 const Farmer = require('../models/farmer.model');
 
-const normalizeFlowStatus = (status) => status;
+const normalizeFlowStatus = (status) => {
+  const normalizedStatus = String(status || '').trim().toUpperCase();
+
+  if (
+    normalizedStatus === 'PENDING_SITE_ANALYSIS'
+    || normalizedStatus === 'SITE_ANALYSIS_PENDING'
+    || normalizedStatus === 'PENDING_ANALYSIS'
+  ) {
+    return 'PENDING_PASSWORD_SETUP';
+  }
+
+  return normalizedStatus || 'PENDING_KYC';
+};
 
 const mapStatusToStages = (farmer) => ({
   kyc: farmer.stages_kyc || 'PENDING',

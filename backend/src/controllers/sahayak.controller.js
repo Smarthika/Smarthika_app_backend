@@ -7,7 +7,19 @@ const buildDate = () => new Date().toISOString().split('T')[0];
 const generateFarmerId = () => `farmer_${Date.now()}`;
 const generateUsername = (mobileNumber) => String(mobileNumber).trim();
 
-const normalizeFlowStatus = (status) => status;
+const normalizeFlowStatus = (status) => {
+  const normalizedStatus = String(status || '').trim().toUpperCase();
+
+  if (
+    normalizedStatus === 'PENDING_SITE_ANALYSIS'
+    || normalizedStatus === 'SITE_ANALYSIS_PENDING'
+    || normalizedStatus === 'PENDING_ANALYSIS'
+  ) {
+    return 'PENDING_PASSWORD_SETUP';
+  }
+
+  return normalizedStatus || 'PENDING_KYC';
+};
 
 const getSahayakFarmers = async (req, res) => {
   try {
@@ -232,24 +244,9 @@ const setFarmerPassword = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Farmer not found' });
     }
 
-    const hasCompletedLandStage = farmer.stages_land === 'COMPLETED';
-    const hasLandData = !!(farmer.landData && String(farmer.landData.surveyNo || '').trim());
-    const hasLandRecord = !!(await Land.findOne({ farmerId }));
+    const normalizedFarmerStatus = normalizeFlowStatus(farmer.status);
 
-    const canSetPassword =
-      farmer.status === 'PENDING_PASSWORD_SETUP'
-      || hasCompletedLandStage
-      || hasLandData
-      || hasLandRecord;
-
-    if (!canSetPassword) {
-      return res.status(400).json({
-        success: false,
-        message: 'Password can be set only after land registration is completed',
-      });
-    }
-
-    if (farmer.status !== 'PENDING_PASSWORD_SETUP') {
+    if (normalizedFarmerStatus !== 'PENDING_PASSWORD_SETUP') {
       farmer.status = 'PENDING_PASSWORD_SETUP';
       farmer.stages_land = 'COMPLETED';
     }

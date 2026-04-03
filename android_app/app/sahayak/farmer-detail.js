@@ -16,6 +16,20 @@ export default function FarmerDetailScreen() {
   const [isPasswordModalVisible, setIsPasswordModalVisible] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  const normalizeFlowStatus = (status) => {
+    const normalizedStatus = String(status || '').trim().toUpperCase();
+
+    if (
+      normalizedStatus === 'PENDING_SITE_ANALYSIS'
+      || normalizedStatus === 'SITE_ANALYSIS_PENDING'
+      || normalizedStatus === 'PENDING_ANALYSIS'
+    ) {
+      return 'PENDING_PASSWORD_SETUP';
+    }
+
+    return normalizedStatus || 'PENDING_KYC';
+  };
+
   useEffect(() => {
     loadFarmerDetails();
   }, [farmerId]);
@@ -33,7 +47,10 @@ export default function FarmerDetailScreen() {
       // Load farmer details
       const response = await SahayakService.getFarmerDetails(null, farmerId);
       if (response.success) {
-        setFarmer(response.farmer);
+        setFarmer({
+          ...response.farmer,
+          status: normalizeFlowStatus(response?.farmer?.status),
+        });
       } else {
         Alert.alert('Error', 'Farmer not found');
         router.back();
@@ -48,7 +65,7 @@ export default function FarmerDetailScreen() {
   };
 
   const getStatusColor = (status) => {
-    switch (status) {
+    switch (normalizeFlowStatus(status)) {
       case 'APPROVED': return 'bg-green-100 text-green-800';
       case 'PENDING_KYC': return 'bg-red-100 text-red-800';
       case 'PENDING_LAND_VERIFICATION': return 'bg-yellow-100 text-yellow-800';
@@ -57,18 +74,18 @@ export default function FarmerDetailScreen() {
     }
   };
 
-  const getDisplayStatus = (status) => status;
+  const getDisplayStatus = (status) => normalizeFlowStatus(status);
 
   const canStartKYC = () => {
-    return farmer?.status === 'PENDING_KYC';
+    return normalizeFlowStatus(farmer?.status) === 'PENDING_KYC';
   };
 
   const canRegisterLand = () => {
-    return farmer?.status === 'PENDING_LAND_VERIFICATION';
+    return normalizeFlowStatus(farmer?.status) === 'PENDING_LAND_VERIFICATION';
   };
 
   const canRequestDevices = () => {
-    return farmer?.status === 'PENDING_PASSWORD_SETUP';
+    return normalizeFlowStatus(farmer?.status) === 'PENDING_PASSWORD_SETUP';
   };
 
   const handleStartKYC = () => {
