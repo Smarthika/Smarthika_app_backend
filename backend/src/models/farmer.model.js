@@ -34,23 +34,12 @@ const farmerSchema = new mongoose.Schema(
       geoJson: mongoose.Schema.Types.Mixed,
     },
 
-    // Site Analysis Data
-    siteAnalysisData: {
-      soilType: String,
-      waterSource: String,
-      powerAvailability: String,
-      siteCondition: String,
-      recommendations: String,
-      suitabilityScore: Number,
-    },
-
     // Status
     status: {
       type: String,
       enum: [
         'PENDING_KYC',
         'PENDING_LAND_VERIFICATION',
-        'PENDING_SITE_ANALYSIS',
         'PENDING_PASSWORD_SETUP',
         'APPROVED',
         'REJECTED',
@@ -83,12 +72,6 @@ const farmerSchema = new mongoose.Schema(
       default: 'PENDING',
     },
 
-    stages_siteAnalysis: {
-      type: String,
-      enum: ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'REJECTED'],
-      default: 'PENDING',
-    },
-
     stages_devices: {
       type: String,
       enum: ['NOT_REQUESTED', 'REQUESTED', 'INSTALLED', 'REJECTED'],
@@ -99,7 +82,6 @@ const farmerSchema = new mongoose.Schema(
     registeredDate: Date,
     kycCompletedDate: Date,
     landVerifiedDate: Date,
-    siteAnalysisCompletedDate: Date,
     approvedDate: Date,
 
     // Auth

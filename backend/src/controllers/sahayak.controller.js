@@ -1,12 +1,13 @@
 const bcrypt = require('bcryptjs');
 const Farmer = require('../models/farmer.model');
 const Land = require('../models/land.model');
-const SiteAnalysis = require('../models/siteAnalysis.model');
 
 const buildDate = () => new Date().toISOString().split('T')[0];
 
 const generateFarmerId = () => `farmer_${Date.now()}`;
 const generateUsername = (mobileNumber) => String(mobileNumber).trim();
+
+const normalizeFlowStatus = (status) => status;
 
 const getSahayakFarmers = async (req, res) => {
   try {
@@ -14,9 +15,14 @@ const getSahayakFarmers = async (req, res) => {
       .sort({ createdAt: -1 })
       .select('farmerId name mobile village status registeredDate');
 
+    const normalizedFarmers = farmers.map((farmer) => ({
+      ...farmer.toObject(),
+      status: normalizeFlowStatus(farmer.status),
+    }));
+
     return res.json({
       success: true,
-      farmers,
+      farmers: normalizedFarmers,
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Failed to fetch farmers', error: error.message });
@@ -36,7 +42,12 @@ const getFarmerDetails = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Farmer not found' });
     }
 
-    return res.json({ success: true, farmer });
+    const normalizedFarmer = {
+      ...farmer.toObject(),
+      status: normalizeFlowStatus(farmer.status),
+    };
+
+    return res.json({ success: true, farmer: normalizedFarmer });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Failed to fetch farmer details', error: error.message });
   }
@@ -44,7 +55,7 @@ const getFarmerDetails = async (req, res) => {
 
 const onboardNewFarmer = async (req, res) => {
   try {
-    const { name, mobileNumber, village, fatherName, district } = req.body;
+    const { name, mobileNumber, village, district } = req.body;
 
     if (!name || !mobileNumber || !village) {
       return res.status(400).json({
@@ -72,13 +83,11 @@ const onboardNewFarmer = async (req, res) => {
       username,
       mobile: normalizedMobile,
       village: String(village).trim(),
-      fatherName: fatherName ? String(fatherName).trim() : undefined,
       district: district ? String(district).trim() : undefined,
       status: 'PENDING_KYC',
       overallStatus: 'PENDING_APPROVAL',
       stages_kyc: 'PENDING',
       stages_land: 'PENDING',
-      stages_siteAnalysis: 'PENDING',
       stages_devices: 'NOT_REQUESTED',
       registeredDate: new Date(),
       createdBy: req.user.sahayakId,
@@ -89,7 +98,7 @@ const onboardNewFarmer = async (req, res) => {
       farmerId,
       username,
       registeredDate: buildDate(),
-      message: 'Farmer onboarded successfully. Set password after site analysis to approve farmer.',
+      message: 'Farmer onboarded successfully. Complete KYC and Land steps. Set password for final approval.',
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Failed to onboard farmer', error: error.message });
@@ -106,12 +115,23 @@ const completeKYC = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Farmer not found' });
     }
 
-    farmer.aadhaarNumber = aadhaarNumber;
+    const cleanedAadhaar = String(aadhaarNumber || '').replace(/\s/g, '');
+    if (!/^\d{12}$/.test(cleanedAadhaar)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid 12-digit Aadhaar number is required',
+      });
+    }
+
+    farmer.aadhaarNumber = cleanedAadhaar;
     farmer.aadhaarVerified = true;
     farmer.aadhaarVerificationDate = new Date();
+
     farmer.status = 'PENDING_LAND_VERIFICATION';
     farmer.stages_kyc = 'COMPLETED';
     farmer.stages_land = 'PENDING_VERIFICATION';
+    farmer.kycCompletedDate = new Date();
+
     await farmer.save();
 
     return res.json({ success: true, message: 'KYC completed successfully' });
@@ -184,89 +204,14 @@ const registerLand = async (req, res) => {
     // Store land details
     farmer.landData = normalizedLandData;
 
-    farmer.status = 'PENDING_SITE_ANALYSIS';
+    farmer.status = 'PENDING_PASSWORD_SETUP';
     farmer.stages_land = 'COMPLETED';
-    farmer.stages_siteAnalysis = 'PENDING';
     farmer.landVerifiedDate = new Date();
     await farmer.save();
 
     return res.json({ success: true, message: 'Land details submitted successfully' });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Failed to register land', error: error.message });
-  }
-};
-
-const completeSiteAnalysis = async (req, res) => {
-  try {
-    const { farmerId } = req.params;
-    const { analysisData } = req.body;
-
-    if (!analysisData) {
-      return res.status(400).json({
-        success: false,
-        message: 'analysisData is required',
-      });
-    }
-
-    const farmer = await Farmer.findOne({ farmerId, sahayakId: req.user.sahayakId });
-    if (!farmer) {
-      return res.status(404).json({ success: false, message: 'Farmer not found' });
-    }
-
-    const existingSiteAnalysis = await SiteAnalysis.findOne({ farmerId }).sort({ createdAt: -1 });
-    const sitePayload = {
-      soilType: String(analysisData.soilType || '').trim(),
-      notes: String(analysisData.recommendations || '').trim(),
-      visitDate: new Date(),
-      conductedBy: req.user.sahayakId,
-      status: 'COMPLETED',
-    };
-
-    if (existingSiteAnalysis) {
-      existingSiteAnalysis.soilType = sitePayload.soilType;
-      existingSiteAnalysis.waterSource = String(analysisData.waterSource || '').trim();
-      existingSiteAnalysis.powerSupply = String(analysisData.powerAvailability || '').trim();
-      existingSiteAnalysis.notes = sitePayload.notes;
-      existingSiteAnalysis.visitDate = sitePayload.visitDate;
-      existingSiteAnalysis.conductedBy = sitePayload.conductedBy;
-      existingSiteAnalysis.status = sitePayload.status;
-      await existingSiteAnalysis.save();
-    } else {
-      await SiteAnalysis.create({
-        analysisId: `analysis_${Date.now()}`,
-        farmerId,
-        soilType: sitePayload.soilType,
-        waterSource: String(analysisData.waterSource || '').trim(),
-        powerSupply: String(analysisData.powerAvailability || '').trim(),
-        notes: sitePayload.notes,
-        visitDate: sitePayload.visitDate,
-        conductedBy: sitePayload.conductedBy,
-        status: sitePayload.status,
-      });
-    }
-
-    // Store site analysis details
-    farmer.siteAnalysisData = {
-      soilType: analysisData.soilType,
-      waterSource: analysisData.waterSource,
-      powerAvailability: analysisData.powerAvailability,
-      siteCondition: analysisData.siteCondition,
-      recommendations: analysisData.recommendations,
-      suitabilityScore: analysisData.suitabilityScore,
-    };
-
-    farmer.status = 'PENDING_PASSWORD_SETUP';
-    farmer.stages_siteAnalysis = 'COMPLETED';
-    farmer.stages_devices = 'NOT_REQUESTED';
-    farmer.siteAnalysisCompletedDate = new Date();
-    await farmer.save();
-
-    return res.json({
-      success: true,
-      message: 'Site analysis completed successfully. Set farmer password to approve account.',
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: 'Failed to complete site analysis', error: error.message });
   }
 };
 
@@ -287,11 +232,26 @@ const setFarmerPassword = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Farmer not found' });
     }
 
-    if (farmer.status !== 'PENDING_PASSWORD_SETUP') {
+    const hasCompletedLandStage = farmer.stages_land === 'COMPLETED';
+    const hasLandData = !!(farmer.landData && String(farmer.landData.surveyNo || '').trim());
+    const hasLandRecord = !!(await Land.findOne({ farmerId }));
+
+    const canSetPassword =
+      farmer.status === 'PENDING_PASSWORD_SETUP'
+      || hasCompletedLandStage
+      || hasLandData
+      || hasLandRecord;
+
+    if (!canSetPassword) {
       return res.status(400).json({
         success: false,
-        message: 'Password can be set only after site analysis is completed',
+        message: 'Password can be set only after land registration is completed',
       });
+    }
+
+    if (farmer.status !== 'PENDING_PASSWORD_SETUP') {
+      farmer.status = 'PENDING_PASSWORD_SETUP';
+      farmer.stages_land = 'COMPLETED';
     }
 
     const hashedPassword = await bcrypt.hash(String(password).trim(), 10);
@@ -327,6 +287,5 @@ module.exports = {
   onboardNewFarmer,
   completeKYC,
   registerLand,
-  completeSiteAnalysis,
   setFarmerPassword,
 };

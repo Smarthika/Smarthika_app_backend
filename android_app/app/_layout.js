@@ -35,7 +35,6 @@ export default function RootLayout() {
         <Stack.Screen name="sahayak/kyc-registration" options={{ headerShown: false }} />
         <Stack.Screen name="sahayak/land-registration" options={{ headerShown: false }} />
         <Stack.Screen name="sahayak/map-boundary-marking" options={{ headerShown: false }} />
-        <Stack.Screen name="sahayak/site-analysis" options={{ headerShown: false }} />
       </Stack>
     </AuthProvider>
   );

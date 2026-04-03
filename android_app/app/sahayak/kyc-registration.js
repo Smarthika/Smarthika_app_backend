@@ -35,32 +35,20 @@ export default function KYCRegistrationScreen() {
     }, 1000);
   };
 
-  const validateAadhaar = (number) => {
-    // Basic Aadhaar validation (12 digits)
-    return /^\d{12}$/.test(number);
-  };
+  const validateAadhaar = (number) => /^\d{12}$/.test(number);
 
   const formatAadhaar = (text) => {
-    // Remove any non-digit characters
-    const cleaned = text.replace(/\D/g, '');
-    
-    // Limit to 12 digits
-    const limited = cleaned.substring(0, 12);
-    
-    // Format as XXXX XXXX XXXX
-    const formatted = limited.replace(/(\d{4})(\d{4})(\d{4})/, '$1 $2 $3');
-    
-    return formatted;
+    const cleaned = String(text || '').replace(/\D/g, '').substring(0, 12);
+    if (cleaned.length <= 4) return cleaned;
+    if (cleaned.length <= 8) return `${cleaned.slice(0, 4)} ${cleaned.slice(4)}`;
+    return `${cleaned.slice(0, 4)} ${cleaned.slice(4, 8)} ${cleaned.slice(8)}`;
   };
 
-  const handleAadhaarChange = (text) => {
-    const formatted = formatAadhaar(text);
-    setAadhaarNumber(formatted);
-  };
+  const handleAadhaarChange = (text) => setAadhaarNumber(formatAadhaar(text));
 
   const sendAadhaarOTP = async () => {
     const cleanedAadhaar = aadhaarNumber.replace(/\s/g, '');
-    
+
     if (!validateAadhaar(cleanedAadhaar)) {
       Alert.alert('Error', 'Please enter a valid 12-digit Aadhaar number');
       return;
@@ -68,10 +56,9 @@ export default function KYCRegistrationScreen() {
 
     try {
       setIsLoading(true);
-      
-      // Call KYC service to send Aadhaar OTP
+
       const response = await KYCService.sendAadhaarOTP(cleanedAadhaar);
-      
+
       if (response.success) {
         setTransactionId(response.transactionId);
         setShowOTPInput(true);
@@ -102,16 +89,14 @@ export default function KYCRegistrationScreen() {
 
     try {
       setIsLoading(true);
-      
-      // Verify Aadhaar OTP first
+
       const otpResponse = await KYCService.verifyAadhaarOTP(transactionId, otp);
-      
+
       if (otpResponse.success) {
-        // If OTP verification successful, complete KYC with Sahayak service
         const cleanedAadhaar = aadhaarNumber.replace(/\s/g, '');
 
         const kycResponse = await SahayakService.completeKYC(null, farmerId, cleanedAadhaar);
-        
+
         if (kycResponse.success) {
           Alert.alert(
             'KYC Completed!',
@@ -141,10 +126,8 @@ export default function KYCRegistrationScreen() {
 
   const handleCompleteKYC = async () => {
     if (!showOTPInput) {
-      // First step: Send OTP
       await sendAadhaarOTP();
     } else {
-      // Second step: Verify OTP and complete KYC
       await verifyAadhaarOTP();
     }
   };
@@ -152,14 +135,10 @@ export default function KYCRegistrationScreen() {
   return (
     <View className="flex-1 bg-blue-50">
       <StatusBar style="dark" />
-      
-      {/* Header */}
+
       <View className="bg-white pt-12 pb-6 px-6 shadow-sm">
         <View className="flex-row items-center">
-          <TouchableOpacity 
-            onPress={() => router.back()}
-            className="mr-4"
-          >
+          <TouchableOpacity onPress={() => router.back()} className="mr-4">
             <FontAwesome name="arrow-left" size={24} color="#3b82f6" />
           </TouchableOpacity>
           <View className="flex-1 mt-5">
@@ -170,7 +149,6 @@ export default function KYCRegistrationScreen() {
       </View>
 
       <View className="flex-1 p-6">
-        {/* Info Card */}
         <View className="bg-white rounded-lg p-6 shadow-sm border border-gray-100 mb-6">
           <View className="flex-row items-center mb-4">
             <View className="w-12 h-12 bg-red-100 rounded-full items-center justify-center mr-4">
@@ -188,7 +166,6 @@ export default function KYCRegistrationScreen() {
           </Text>
         </View>
 
-        {/* Aadhaar Input */}
         <View className="space-y-2 mb-6">
           <Text className="text-blue-800 font-semibold text-lg">
             Aadhaar Number <Text className="text-red-500">*</Text>
@@ -202,7 +179,7 @@ export default function KYCRegistrationScreen() {
               value={aadhaarNumber}
               onChangeText={handleAadhaarChange}
               keyboardType="number-pad"
-              maxLength={14} // Including spaces
+              maxLength={14}
               style={{ fontFamily: 'monospace' }}
               editable={!showOTPInput}
             />
@@ -212,7 +189,6 @@ export default function KYCRegistrationScreen() {
           </Text>
         </View>
 
-        {/* OTP Input Section */}
         {showOTPInput && (
           <View className="space-y-2 mb-6">
             <Text className="text-blue-800 font-semibold text-lg">
@@ -249,12 +225,7 @@ export default function KYCRegistrationScreen() {
           </View>
         )}
 
-        {/* Complete KYC Button */}
-        <TouchableOpacity
-          className={`rounded-lg py-4 px-6 ${isLoading ? 'bg-red-300' : 'bg-red-500'} shadow-sm`}
-          onPress={handleCompleteKYC}
-          disabled={isLoading}
-        >
+        <TouchableOpacity className={`rounded-lg py-4 px-6 ${isLoading ? 'bg-red-300' : 'bg-red-500'} shadow-sm`} onPress={handleCompleteKYC} disabled={isLoading}>
           {isLoading ? (
             <View className="flex-row items-center justify-center">
               <LoadingSpinner size="small" color="#ffffff" />
@@ -268,37 +239,6 @@ export default function KYCRegistrationScreen() {
             </Text>
           )}
         </TouchableOpacity>
-
-        {/* Important Notes */}
-        {/* <View className="bg-yellow-100 rounded-lg p-4 mt-6">
-          <View className="flex-row">
-            <FontAwesome name="exclamation-triangle" size={16} color="#f59e0b" />
-            <View className="flex-1 ml-3">
-              <Text className="text-yellow-800 font-semibold text-sm mb-1">Important:</Text>
-              <Text className="text-yellow-700 text-xs leading-4">
-                • Ensure the farmer is present during KYC verification{'\n'}
-                • Double-check the Aadhaar number before submitting{'\n'}
-                • This process cannot be reversed once completed{'\n'}
-                • KYC completion enables land registration access
-              </Text>
-            </View>
-          </View>
-        </View> */}
-
-        {/* Demo Note */}
-        {/* <View className="bg-blue-100 rounded-lg p-4 mt-4">
-          <View className="flex-row">
-            <FontAwesome name="info-circle" size={16} color="#3b82f6" />
-            <View className="flex-1 ml-3">
-              <Text className="text-blue-800 font-semibold text-sm mb-1">Demo Mode:</Text>
-              <Text className="text-blue-700 text-xs leading-4">
-                • Any valid 12-digit Aadhaar number will work for testing{'\n'}
-                • Use test OTP: 654321 for verification{'\n'}
-                • In production, this would integrate with actual eKYC services
-              </Text>
-            </View>
-          </View>
-        </View> */}
       </View>
     </View>
   );

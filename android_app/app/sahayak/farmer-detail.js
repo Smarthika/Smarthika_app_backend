@@ -52,11 +52,12 @@ export default function FarmerDetailScreen() {
       case 'APPROVED': return 'bg-green-100 text-green-800';
       case 'PENDING_KYC': return 'bg-red-100 text-red-800';
       case 'PENDING_LAND_VERIFICATION': return 'bg-yellow-100 text-yellow-800';
-      case 'PENDING_SITE_ANALYSIS': return 'bg-blue-100 text-blue-800';
       case 'PENDING_PASSWORD_SETUP': return 'bg-indigo-100 text-indigo-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
+
+  const getDisplayStatus = (status) => status;
 
   const canStartKYC = () => {
     return farmer?.status === 'PENDING_KYC';
@@ -64,10 +65,6 @@ export default function FarmerDetailScreen() {
 
   const canRegisterLand = () => {
     return farmer?.status === 'PENDING_LAND_VERIFICATION';
-  };
-
-  const canCompleteSiteAnalysis = () => {
-    return farmer?.status === 'PENDING_SITE_ANALYSIS';
   };
 
   const canRequestDevices = () => {
@@ -82,13 +79,9 @@ export default function FarmerDetailScreen() {
     router.push(`/sahayak/land-registration?farmerId=${farmerId}`);
   };
 
-  const handleCompleteSiteAnalysis = () => {
-    router.push(`/sahayak/site-analysis?farmerId=${farmerId}`);
-  };
-
   const handleSetFarmerPassword = async () => {
     if (!canRequestDevices()) {
-      Alert.alert('Error', 'Complete site analysis first');
+      Alert.alert('Error', 'Complete land registration first');
       return;
     }
 
@@ -112,7 +105,10 @@ export default function FarmerDetailScreen() {
         // Auto-reload farmer details to reflect APPROVED status
         loadFarmerDetails();
       } else {
-        Alert.alert('Error', response.message || 'Failed to set password');
+        const normalizedMessage = String(response.message || '')
+          .replace(/after\s+site\s+analysis\s+is\s+completed/i, 'after land registration is completed')
+          .replace(/Complete\s+site\s+analysis\s+first/i, 'Complete land registration first');
+        Alert.alert('Error', normalizedMessage || 'Failed to set password');
       }
     } catch (error) {
       console.error('Set password error:', error);
@@ -186,7 +182,7 @@ export default function FarmerDetailScreen() {
               </View>
               <View className={`rounded-full px-3 py-1 ${getStatusColor(farmer.status)}`}>
                 <Text className="text-xs font-medium">
-                  {farmer.status.replace(/_/g, ' ')}
+                  {getDisplayStatus(farmer.status).replace(/_/g, ' ')}
                 </Text>
               </View>
             </View>
@@ -208,6 +204,18 @@ export default function FarmerDetailScreen() {
                 <View className="flex-row">
                   <FontAwesome name="id-card" size={15} color="#6b7280" />
                   <Text className="text-gray-700 ml-5 mb-2">Aadhaar: {farmer.aadhaarNumber}</Text>
+                </View>
+              )}
+              {farmer.careOf && (
+                <View className="flex-row">
+                  <FontAwesome name="user" size={15} color="#6b7280" />
+                  <Text className="text-gray-700 ml-5 mb-2">C/O: {farmer.careOf}</Text>
+                </View>
+              )}
+              {farmer.address && (
+                <View className="flex-row">
+                  <FontAwesome name="home" size={15} color="#6b7280" />
+                  <Text className="text-gray-700 ml-5 mb-2">Address: {farmer.address}</Text>
                 </View>
               )}
             </View>
@@ -291,43 +299,6 @@ export default function FarmerDetailScreen() {
               </View>
             </TouchableOpacity>
 
-            {/* Complete Site Analysis */}
-            <TouchableOpacity
-              className={`rounded-lg p-4 shadow-sm mb-4 ${
-                canCompleteSiteAnalysis() 
-                  ? 'bg-purple-500' 
-                  : 'bg-gray-300'
-              }`}
-              onPress={canCompleteSiteAnalysis() ? handleCompleteSiteAnalysis : null}
-              disabled={!canCompleteSiteAnalysis()}
-            >
-              <View className="flex-row items-center">
-                <FontAwesome 
-                  name="search" 
-                  size={20} 
-                  color={canCompleteSiteAnalysis() ? "#ffffff" : "#9ca3af"} 
-                />
-                <View className="flex-1 ml-3">
-                  <Text className={`font-semibold text-base ${
-                    canCompleteSiteAnalysis() ? 'text-white' : 'text-gray-500'
-                  }`}>
-                    Complete Site Analysis
-                  </Text>
-                  <Text className={`text-sm ${
-                    canCompleteSiteAnalysis() ? 'text-purple-100' : 'text-gray-400'
-                  }`}>
-                    {canCompleteSiteAnalysis() 
-                      ? 'Conduct site survey and approve for devices' 
-                      : 'Complete land registration first'
-                    }
-                  </Text>
-                </View>
-                {canCompleteSiteAnalysis() && (
-                  <FontAwesome name="chevron-right" size={16} color="#ffffff" />
-                )}
-              </View>
-            </TouchableOpacity>
-
             {/* Set Farmer Password */}
             <TouchableOpacity
               className={`rounded-lg p-4 shadow-sm mb-4 ${
@@ -352,7 +323,7 @@ export default function FarmerDetailScreen() {
               <Text className={`text-sm mb-3 ${canRequestDevices() ? 'text-blue-700' : 'text-gray-400'}`}>
                 {canRequestDevices()
                   ? `Username will be mobile number: ${farmer.mobile}`
-                  : 'Complete site analysis first'}
+                  : 'Complete land registration first'}
               </Text>
 
               {/* <View className="flex-row items-center justify-between">

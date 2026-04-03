@@ -71,7 +71,6 @@ export default function SahayakDashboard() {
       case 'APPROVED': return 'bg-green-100 text-green-800';
       case 'PENDING_KYC': return 'bg-red-100 text-red-800';
       case 'PENDING_LAND_VERIFICATION': return 'bg-yellow-100 text-yellow-800';
-      case 'PENDING_SITE_ANALYSIS': return 'bg-blue-100 text-blue-800';
       case 'PENDING_PASSWORD_SETUP': return 'bg-indigo-100 text-indigo-800';
       default: return 'bg-gray-100 text-gray-800';
     }
@@ -82,11 +81,12 @@ export default function SahayakDashboard() {
       case 'APPROVED': return 'check-circle';
       case 'PENDING_KYC': return 'id-card';
       case 'PENDING_LAND_VERIFICATION': return 'map-marker';
-      case 'PENDING_SITE_ANALYSIS': return 'search';
       case 'PENDING_PASSWORD_SETUP': return 'key';
       default: return 'clock-o';
     }
   };
+
+  const getDisplayStatus = (status) => status;
 
   const handleOnboardNewFarmer = () => {
     router.push('/sahayak/onboard-farmer');
@@ -236,7 +236,7 @@ export default function SahayakDashboard() {
                     <View className="ml-2 items-end">
                       <View className={`rounded-full px-3 py-1 ${getStatusColor(farmer.status)}`}>
                         <Text className="text-xs font-medium">
-                          {farmer.status.replace(/_/g, ' ')}
+                          {getDisplayStatus(farmer.status).replace(/_/g, ' ')}
                         </Text>
                       </View>
                       <FontAwesome 

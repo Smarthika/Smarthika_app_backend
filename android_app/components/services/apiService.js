@@ -189,20 +189,6 @@ class SahayakService {
     }
   }
 
-  static async completeSiteAnalysis(_token, farmerId, analysisData) {
-    try {
-      const headers = await withAuth();
-      return await request(`/sahayak/farmer/${farmerId}/site-analysis`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ analysisData }),
-      });
-    } catch (error) {
-      console.error('Complete site analysis error:', error);
-      throw error;
-    }
-  }
-
   static async getFarmerDetails(_token, farmerId) {
     try {
       const headers = await withAuth();

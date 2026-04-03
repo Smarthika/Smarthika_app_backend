@@ -5,7 +5,6 @@ const {
   onboardNewFarmer,
   completeKYC,
   registerLand,
-  completeSiteAnalysis,
   setFarmerPassword,
 } = require('../controllers/sahayak.controller');
 const { verifyToken, requireRole } = require('../middleware/auth.middleware');
@@ -19,7 +18,6 @@ router.get('/farmer/:farmerId', getFarmerDetails);
 router.post('/onboard', onboardNewFarmer);
 router.post('/farmer/:farmerId/kyc', completeKYC);
 router.post('/farmer/:farmerId/land', registerLand);
-router.post('/farmer/:farmerId/site-analysis', completeSiteAnalysis);
 router.post('/farmer/:farmerId/set-password', setFarmerPassword);
 
 module.exports = router;

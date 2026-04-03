@@ -967,7 +967,6 @@ export default function Home() {
     const iconMap = {
       kyc: status === 'COMPLETED' ? 'check-circle' : status === 'PENDING' ? 'clock-o' : 'times-circle',
       land: status === 'COMPLETED' ? 'check-circle' : status === 'PENDING_VERIFICATION' ? 'clock-o' : 'times-circle',
-      siteAnalysis: status === 'COMPLETED' ? 'check-circle' : status === 'PENDING' ? 'clock-o' : 'times-circle',
       devices: status === 'INSTALLED' ? 'check-circle' : status === 'NOT_REQUESTED' ? 'times-circle' : 'clock-o'
     };
     return iconMap[stage] || 'times-circle';
@@ -992,7 +991,6 @@ export default function Home() {
     const titleMap = {
       kyc: 'KYC Verification',
       land: 'Land Verification',
-      siteAnalysis: 'Site Analysis',
       devices: 'Device Installation'
     };
     return titleMap[stage] || stage;
@@ -1004,9 +1002,6 @@ export default function Home() {
     }
     if (stage === 'land') {
       return status === 'COMPLETED' ? 'Land records verified' : 'Land verification in progress';
-    }
-    if (stage === 'siteAnalysis') {
-      return status === 'COMPLETED' ? 'Site survey completed' : 'Awaiting site analysis';
     }
     if (stage === 'devices') {
       return status === 'INSTALLED' ? 'Devices installed and active' : 'Device installation not initiated';

@@ -73,7 +73,7 @@ export default function LandRegistrationScreen() {
       if (response.success) {
         Alert.alert(
           'Land Registered!',
-          'The farmer\'s land details have been registered successfully. The application will now proceed to site analysis.',
+          'The farmer\'s land details have been registered successfully. You can now set the farmer password for final approval.',
           [
             {
               text: 'OK',

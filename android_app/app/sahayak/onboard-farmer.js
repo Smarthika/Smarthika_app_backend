@@ -11,7 +11,6 @@ export default function OnboardFarmerScreen() {
     name: '',
     mobileNumber: '',
     village: '',
-    fatherName: '',
     district: ''
   });
   const [isLoading, setIsLoading] = useState(false);
@@ -57,11 +56,14 @@ export default function OnboardFarmerScreen() {
       
       if (response.success) {
         Alert.alert(
-          'Success!',
-          `Farmer ${formData.name} has been successfully onboarded.\n\nFarmer ID: ${response.farmerId}\nUsername: ${response.username}\n\nComplete KYC, Land, and Site Analysis. Set password at the final step for farmer approval.`,
+          '✓ Farmer Onboarded Successfully',
+          `${formData.name} has been registered.\n\nFarmer ID: ${response.farmerId}\nUsername: ${response.username}\n\nNext Steps:
+1. Complete KYC verification (Aadhaar)
+2. Register land details
+3. Set password for approval`,
           [
             {
-              text: 'OK',
+              text: 'Done',
               onPress: () => {
                 router.back();
               }
@@ -88,7 +90,8 @@ export default function OnboardFarmerScreen() {
         <View className="flex-row items-center">
           <TouchableOpacity 
             onPress={() => router.back()}
-            className="mr-4"
+            className="mr-4 p-2"
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <FontAwesome name="arrow-left" size={24} color="#3b82f6" />
           </TouchableOpacity>
@@ -126,8 +129,9 @@ export default function OnboardFarmerScreen() {
             </Text>
             <View className="bg-white rounded-lg border border-blue-200 flex-row items-center px-4 py-4">
               <FontAwesome name="phone" size={20} color="#3b82f6" />
+              <Text className="ml-3 text-base text-gray-800 font-semibold">+91</Text>
               <TextInput
-                className="flex-1 ml-3 text-base text-gray-800"
+                className="flex-1 ml-2 text-base text-gray-800"
                 placeholder="Enter 10-digit mobile number"
                 placeholderTextColor="#6B7280"
                 value={formData.mobileNumber}
@@ -156,36 +160,23 @@ export default function OnboardFarmerScreen() {
             </View>
           </View>
 
-          {/* Father's Name (Optional) */}
-          <View className="space-y-2">
-            <Text className="text-blue-800 font-semibold text-lg">Father's Name</Text>
-            <View className="bg-white rounded-lg border border-blue-200 flex-row items-center px-4 py-4">
-              <FontAwesome name="male" size={20} color="#3b82f6" />
-              <TextInput
-                className="flex-1 ml-3 text-base text-gray-800"
-                placeholder="Enter father's name (optional)"
-                placeholderTextColor="#6B7280"
-                value={formData.fatherName}
-                onChangeText={(value) => handleInputChange('fatherName', value)}
-                autoCapitalize="words"
-              />
-            </View>
-          </View>
-
           {/* District (Optional) */}
           <View className="space-y-2">
-            <Text className="text-blue-800 font-semibold text-lg">District</Text>
+            <Text className="text-blue-800 font-semibold text-lg">
+              District <Text className="text-gray-500 font-normal text-sm">(optional)</Text>
+            </Text>
             <View className="bg-white rounded-lg border border-blue-200 flex-row items-center px-4 py-4">
               <FontAwesome name="building" size={20} color="#3b82f6" />
               <TextInput
                 className="flex-1 ml-3 text-base text-gray-800"
-                placeholder="Enter district name (optional)"
+                placeholder="Farmer's district of residence"
                 placeholderTextColor="#6B7280"
                 value={formData.district}
                 onChangeText={(value) => handleInputChange('district', value)}
                 autoCapitalize="words"
               />
             </View>
+            {/* <Text className="text-xs text-gray-600 px-1">Note: Land may be registered in a different district</Text> */}
           </View>
 
           {/* Onboard Button */}

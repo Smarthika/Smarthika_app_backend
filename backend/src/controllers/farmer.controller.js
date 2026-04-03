@@ -1,9 +1,10 @@
 const Farmer = require('../models/farmer.model');
 
+const normalizeFlowStatus = (status) => status;
+
 const mapStatusToStages = (farmer) => ({
   kyc: farmer.stages_kyc || 'PENDING',
   land: farmer.stages_land || 'PENDING',
-  siteAnalysis: farmer.stages_siteAnalysis || 'PENDING',
   devices: farmer.stages_devices || 'NOT_REQUESTED',
 });
 
@@ -18,6 +19,7 @@ const getFarmerStatus = async (req, res) => {
     return res.json({
       success: true,
       overallStatus: farmer.overallStatus || 'PENDING_APPROVAL',
+      status: normalizeFlowStatus(farmer.status),
       stages: mapStatusToStages(farmer),
       sahayakContact: '+91 8888888888',
     });
