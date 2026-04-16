@@ -7,6 +7,12 @@ import { FontAwesome } from '@expo/vector-icons';
 import { SahayakService } from '../../components/services/apiService';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 
+const DEVICE_OPTIONS = [
+  { key: 'motor_control', label: 'Motor Control', description: 'Primary pump motor controller', icon: 'bolt' },
+  { key: 'device_2', label: 'Device 2', description: 'Auxiliary device slot 2', icon: 'tablet' },
+  { key: 'device_3', label: 'Device 3', description: 'Auxiliary device slot 3', icon: 'mobile' },
+];
+
 export default function FarmerDetailScreen() {
   const { farmerId } = useLocalSearchParams();
   const [farmer, setFarmer] = useState(null);
@@ -15,6 +21,10 @@ export default function FarmerDetailScreen() {
   const [isSavingPassword, setIsSavingPassword] = useState(false);
   const [isPasswordModalVisible, setIsPasswordModalVisible] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [assignedDevices, setAssignedDevices] = useState([]);
+  const [selectedDeviceKeys, setSelectedDeviceKeys] = useState([]);
+  const [isDeviceModalVisible, setIsDeviceModalVisible] = useState(false);
+  const [isSavingDevices, setIsSavingDevices] = useState(false);
 
   const normalizeFlowStatus = (status) => {
     const normalizedStatus = String(status || '').trim().toUpperCase();
@@ -47,10 +57,13 @@ export default function FarmerDetailScreen() {
       // Load farmer details
       const response = await SahayakService.getFarmerDetails(null, farmerId);
       if (response.success) {
+        const farmerDevices = Array.isArray(response?.farmer?.devices) ? response.farmer.devices : [];
         setFarmer({
           ...response.farmer,
           status: normalizeFlowStatus(response?.farmer?.status),
         });
+        setAssignedDevices(farmerDevices);
+        setSelectedDeviceKeys(farmerDevices.map((device) => device.deviceKey));
       } else {
         Alert.alert('Error', 'Farmer not found');
         router.back();
@@ -88,6 +101,10 @@ export default function FarmerDetailScreen() {
     return normalizeFlowStatus(farmer?.status) === 'PENDING_PASSWORD_SETUP';
   };
 
+  const canAssignDevices = () => {
+    return normalizeFlowStatus(farmer?.status) === 'APPROVED';
+  };
+
   const handleStartKYC = () => {
     router.push(`/sahayak/kyc-registration?farmerId=${farmerId}`);
   };
@@ -119,6 +136,7 @@ export default function FarmerDetailScreen() {
         setFarmerPassword('');
         setShowPassword(false);
         setIsPasswordModalVisible(false);
+        setIsDeviceModalVisible(true);
         // Auto-reload farmer details to reflect APPROVED status
         loadFarmerDetails();
       } else {
@@ -132,6 +150,46 @@ export default function FarmerDetailScreen() {
       Alert.alert('Error', 'Failed to set password. Please try again.');
     } finally {
       setIsSavingPassword(false);
+    }
+  };
+
+  const handleToggleDevice = (deviceKey) => {
+    setSelectedDeviceKeys((current) => {
+      if (current.includes(deviceKey)) {
+        return current.filter((key) => key !== deviceKey);
+      }
+
+      return [...current, deviceKey];
+    });
+  };
+
+  const handleSaveDevices = async () => {
+    if (!canAssignDevices()) {
+      Alert.alert('Error', 'Complete password setup first');
+      return;
+    }
+
+    if (selectedDeviceKeys.length === 0) {
+      Alert.alert('Validation Error', 'Select at least one device');
+      return;
+    }
+
+    try {
+      setIsSavingDevices(true);
+      const response = await SahayakService.saveFarmerDevices(null, farmerId, selectedDeviceKeys);
+
+      if (response.success) {
+        Alert.alert('Devices Saved', 'Device assignment updated successfully');
+        setIsDeviceModalVisible(false);
+        loadFarmerDetails();
+      } else {
+        Alert.alert('Error', response.message || 'Failed to save devices');
+      }
+    } catch (error) {
+      console.error('Save devices error:', error);
+      Alert.alert('Error', 'Failed to save devices. Please try again.');
+    } finally {
+      setIsSavingDevices(false);
     }
   };
 
@@ -354,6 +412,49 @@ export default function FarmerDetailScreen() {
 
             </TouchableOpacity>
 
+            {/* Device Assignment */}
+            <TouchableOpacity
+              className={`rounded-lg p-4 shadow-sm mb-4 ${
+                canAssignDevices()
+                  ? 'bg-green-50 border border-green-200'
+                  : 'bg-gray-100 border border-gray-200'
+              }`}
+              onPress={canAssignDevices() ? () => setIsDeviceModalVisible(true) : null}
+              disabled={!canAssignDevices()}
+            >
+              <View className="flex-row items-center mb-3">
+                <FontAwesome
+                  name="plug"
+                  size={20}
+                  color={canAssignDevices() ? '#15803d' : '#9ca3af'}
+                />
+                <Text className={`font-semibold text-base ml-3 ${canAssignDevices() ? 'text-green-900' : 'text-gray-500'}`}>
+                  Add Devices
+                </Text>
+              </View>
+
+              <Text className={`text-sm mb-3 ${canAssignDevices() ? 'text-green-700' : 'text-gray-400'}`}>
+                {canAssignDevices()
+                  ? `${assignedDevices.length} device(s) assigned`
+                  : 'Set password first to enable device assignment'}
+              </Text>
+
+              {canAssignDevices() && assignedDevices.length > 0 && (
+                <View className="flex-row flex-wrap gap-2">
+                  {assignedDevices.map((device) => (
+                    <View
+                      key={device.deviceId}
+                      className="bg-green-100 border border-green-200 rounded-full px-3 py-1 mr-2 mb-2"
+                    >
+                      <Text className="text-green-800 text-xs font-semibold">
+                        {device.deviceName}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </TouchableOpacity>
+
           </View>
 
           {/* Progress Info */}
@@ -445,6 +546,81 @@ export default function FarmerDetailScreen() {
             >
               <Text className="text-white text-center font-semibold">
                 {isSavingPassword ? 'Saving Password...' : 'Save Farmer Password'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={isDeviceModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!isSavingDevices) {
+            setIsDeviceModalVisible(false);
+          }
+        }}
+      >
+        <View className="flex-1 justify-center items-center px-6" style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View className="bg-white rounded-xl p-5 w-full max-w-md border border-green-200">
+            <View className="flex-row items-center justify-between mb-3">
+              <Text className="text-lg font-semibold text-green-900">Assign Devices</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  if (!isSavingDevices) {
+                    setIsDeviceModalVisible(false);
+                  }
+                }}
+                disabled={isSavingDevices}
+              >
+                <FontAwesome name="times" size={18} color="#6b7280" />
+              </TouchableOpacity>
+            </View>
+
+            <Text className="text-sm text-green-700 mb-4">
+              Select the devices that belong to this farmer.
+            </Text>
+
+            <View className="space-y-3 mb-4">
+              {DEVICE_OPTIONS.map((device) => {
+                const isSelected = selectedDeviceKeys.includes(device.key);
+                return (
+                  <TouchableOpacity
+                    key={device.key}
+                    onPress={() => handleToggleDevice(device.key)}
+                    className={`rounded-lg border p-4 ${isSelected ? 'border-green-500 bg-green-50' : 'border-gray-200 bg-white'}`}
+                  >
+                    <View className="flex-row items-center justify-between">
+                      <View className="flex-row items-center flex-1 pr-3">
+                        <FontAwesome name={device.icon} size={18} color={isSelected ? '#15803d' : '#6b7280'} />
+                        <View className="ml-3 flex-1">
+                          <Text className={`font-semibold ${isSelected ? 'text-green-900' : 'text-gray-800'}`}>
+                            {device.label}
+                          </Text>
+                          <Text className="text-xs text-gray-500 mt-0.5">
+                            {device.description}
+                          </Text>
+                        </View>
+                      </View>
+                      <FontAwesome
+                        name={isSelected ? 'check-square-o' : 'square-o'}
+                        size={20}
+                        color={isSelected ? '#16a34a' : '#9ca3af'}
+                      />
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <TouchableOpacity
+              className={`rounded-lg py-3 ${!isSavingDevices ? 'bg-green-600' : 'bg-gray-300'}`}
+              onPress={handleSaveDevices}
+              disabled={isSavingDevices}
+            >
+              <Text className="text-white text-center font-semibold">
+                {isSavingDevices ? 'Saving Devices...' : 'Save Devices'}
               </Text>
             </TouchableOpacity>
           </View>

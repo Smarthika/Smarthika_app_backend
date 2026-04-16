@@ -6,20 +6,21 @@
  * Broker: AWS IoT Core (ap-south-1) | Protocol: MQTT 3.1.1 over TLS
  *
  *  SUBSCRIBE (device → cloud)
- *    gw/{gw_id}/telemetry   QoS 1  every 5 s / 10 s
- *    gw/{gw_id}/status      QoS 1  on motor state-change
- *    gw/{gw_id}/health      QoS 0  boot + hourly
- *    gw/{gw_id}/error       QoS 1  on fault
- *    gw/{gw_id}/response    QoS 1  ACK/NACK per command
+ *    gw/{farm_id}/{gw_id}/telemetry   QoS 1  every 5 s / 10 s
+ *    gw/{farm_id}/{gw_id}/status      QoS 1  on motor state-change
+ *    gw/{farm_id}/{gw_id}/health      QoS 0  boot + hourly
+ *    gw/{farm_id}/{gw_id}/error       QoS 1  on fault
+ *    gw/{farm_id}/{gw_id}/response    QoS 1  ACK/NACK per command
  *    nodes/{node_id}/env    QoS 0  LoRa forwarded
  *    valves/{valve_id}/status QoS 1 on valve change
  *  PUBLISH (cloud → device)
- *    gw/{gw_id}/cmd         QoS 1
+ *    gw/{farm_id}/{gw_id}/cmd         QoS 1
  */
 
 import mqtt from 'mqtt';
 import AWS from 'aws-sdk';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import StorageService from './storageService';
 import {
   MQTT_CONFIG,
   generateGatewayTopic,
@@ -30,6 +31,18 @@ import {
   MESSAGE_TYPES,
   PAYLOAD_VERSION,
 } from '../../config/mqttConfig';
+
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
+
+const normalizeUrl = (value) => String(value || '').trim().replace(/\/$/, '');
+const buildRequestId = () => `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+const buildMotorRequestId = () => `REQ-uuid-${Math.random().toString(36).slice(2, 8)}`;
+const buildMotorCommandPayload = (cmd) => ({
+    v: '3.0',
+    cmd,
+    request_id: buildMotorRequestId(),
+    ts: new Date().toISOString(),
+});
 
 class MQTTService {
     static instance = null;
@@ -42,6 +55,7 @@ class MQTTService {
         this.subscribedTopics = new Set();
         this.isConnected = false;
         this.isConnecting = false;
+        this.latestPacketTs = null;
         
         // MQTT Configuration from config file
         this.config = MQTT_CONFIG;
@@ -58,6 +72,7 @@ class MQTTService {
             lastUpdated: null,
             status: 'unknown'
         };
+        this.pendingCommands = new Map();
 
         MQTTService.instance = this;
     }
@@ -265,6 +280,10 @@ class MQTTService {
                 { topic: generateGatewayTopic(gateway.health),    qos: this.config.qos.health    },
                 { topic: generateGatewayTopic(gateway.error),     qos: this.config.qos.error     },
                 { topic: generateGatewayTopic(gateway.response),  qos: this.config.qos.response  },
+                { topic: generateGatewayTopic(gateway.display),   qos: this.config.qos.display   },
+                { topic: generateGatewayTopic(gateway.ota),       qos: this.config.qos.ota       },
+                { topic: generateGatewayTopic(gateway.yieldtest), qos: this.config.qos.yieldtest },
+                { topic: generateGatewayTopic(gateway.recovery),  qos: this.config.qos.recovery  },
             ];
 
             for (const { topic, qos } of topicList) {
@@ -320,63 +339,70 @@ class MQTTService {
     }
 
     /**
-     * Send PUMP_START command  (cloud → device, gw/{gw_id}/cmd)
+    * Send PUMP_START command  (cloud → device, gw/{farm_id}/{gw_id}/cmd)
      */
     async turnMotorOn() {
-        const command = {
-            cmd: MOTOR_COMMANDS.PUMP_START,
-            target: this.config.topics.gatewayId,
-            params: {},
-            ts: new Date().toISOString(),
-        };
+        const command = buildMotorCommandPayload('PUMP_START');
 
         const topic = this.getCmdTopic();
 
         try {
             await this.publishMessage(topic, JSON.stringify(command), this.config.qos.cmd);
 
-            // Optimistic local state — real confirmation comes via gw/{gw_id}/status
+            // Optimistic local state — real confirmation comes via gw/{farm_id}/{gw_id}/status
             this.motorState.lastUpdated = new Date().toISOString();
             await this.saveMotorState();
+            this.pendingCommands.set(command.request_id, { cmd: command.cmd, ts: Date.now() });
 
             console.log('PUMP_START command sent:', topic);
-            this.notifyListeners({ type: MESSAGE_TYPES.MOTOR_COMMAND, action: 'on', success: true });
+            this.notifyListeners({ type: MESSAGE_TYPES.MOTOR_COMMAND, action: 'on', success: true, requestId: command.request_id });
             return true;
         } catch (error) {
             console.error('Error sending PUMP_START:', error);
-            this.notifyListeners({ type: MESSAGE_TYPES.MOTOR_COMMAND, action: 'on', success: false, error });
+            this.notifyListeners({ type: MESSAGE_TYPES.MOTOR_COMMAND, action: 'on', success: false, error, requestId: command.request_id });
             throw error;
         }
     }
 
     /**
-     * Send PUMP_STOP command  (cloud → device, gw/{gw_id}/cmd)
+    * Send PUMP_STOP command  (cloud → device, gw/{farm_id}/{gw_id}/cmd)
      */
     async turnMotorOff() {
-        const command = {
-            cmd: MOTOR_COMMANDS.PUMP_STOP,
-            target: this.config.topics.gatewayId,
-            params: {},
-            ts: new Date().toISOString(),
-        };
+        const command = buildMotorCommandPayload('PUMP_STOP');
 
         const topic = this.getCmdTopic();
 
         try {
             await this.publishMessage(topic, JSON.stringify(command), this.config.qos.cmd);
 
-            // Optimistic local state — real confirmation comes via gw/{gw_id}/status
+            // Optimistic local state — real confirmation comes via gw/{farm_id}/{gw_id}/status
             this.motorState.lastUpdated = new Date().toISOString();
             await this.saveMotorState();
+            this.pendingCommands.set(command.request_id, { cmd: command.cmd, ts: Date.now() });
 
             console.log('PUMP_STOP command sent:', topic);
-            this.notifyListeners({ type: MESSAGE_TYPES.MOTOR_COMMAND, action: 'off', success: true });
+            this.notifyListeners({ type: MESSAGE_TYPES.MOTOR_COMMAND, action: 'off', success: true, requestId: command.request_id });
             return true;
         } catch (error) {
             console.error('Error sending PUMP_STOP:', error);
-            this.notifyListeners({ type: MESSAGE_TYPES.MOTOR_COMMAND, action: 'off', success: false, error });
+            this.notifyListeners({ type: MESSAGE_TYPES.MOTOR_COMMAND, action: 'off', success: false, error, requestId: command.request_id });
             throw error;
         }
+    }
+
+    /**
+     * Publish the exact GSM startup sync payload to the gateway command topic.
+     */
+    async sendStatusSync() {
+        const payload = {
+            cmd: 'STATUS_SYNC',
+            request_id: buildRequestId(),
+            ts: new Date().toISOString(),
+        };
+
+        const topic = this.getCmdTopic();
+        await this.publishMessage(topic, JSON.stringify(payload), this.config.qos.cmd);
+        return payload.request_id;
     }
 
     /**
@@ -395,15 +421,19 @@ class MQTTService {
      * @param {object} params
      */
     async sendCommand(cmd, params = {}) {
+        const requestId = buildRequestId();
         const payload = {
             cmd,
+            request_id: requestId,
             target: this.config.topics.gatewayId,
             params,
             ts: new Date().toISOString(),
         };
         const topic = this.getCmdTopic();
         await this.publishMessage(topic, JSON.stringify(payload), this.config.qos.cmd);
+        this.pendingCommands.set(requestId, { cmd, ts: Date.now() });
         console.log(`Command [${cmd}] sent to ${topic}`);
+        return requestId;
     }
 
     /**
@@ -440,6 +470,7 @@ class MQTTService {
         try {
             const { topic, data } = msg;
             const messageData = data.toString();
+            this.latestPacketTs = Date.now();
             
             console.log(`Processing MQTT message from topic ${topic}: ${messageData}`);
             
@@ -460,20 +491,32 @@ class MQTTService {
                 // nodes/{node_id}/env
                 this.handleNodeEnvMessage(parsedMessage);
             } else if (topic.includes('/telemetry')) {
-                // gw/{gw_id}/telemetry
+                // gw/{farm_id}/{gw_id}/telemetry
                 this.handleTelemetryMessage(parsedMessage);
             } else if (topic.includes('/status')) {
-                // gw/{gw_id}/status
+                // gw/{farm_id}/{gw_id}/status
                 this.handleStatusMessage(parsedMessage);
             } else if (topic.includes('/error')) {
-                // gw/{gw_id}/error
+                // gw/{farm_id}/{gw_id}/error
                 this.handleErrorMessage(parsedMessage);
             } else if (topic.includes('/health')) {
-                // gw/{gw_id}/health
+                // gw/{farm_id}/{gw_id}/health
                 this.handleHealthMessage(parsedMessage);
             } else if (topic.includes('/response')) {
-                // gw/{gw_id}/response
+                // gw/{farm_id}/{gw_id}/response
                 this.handleResponseMessage(parsedMessage);
+            } else if (topic.includes('/display')) {
+                // gw/{farm_id}/{gw_id}/display
+                this.handleDisplayMessage(parsedMessage);
+            } else if (topic.includes('/ota')) {
+                // gw/{farm_id}/{gw_id}/ota
+                this.handleOtaMessage(parsedMessage);
+            } else if (topic.includes('/yieldtest')) {
+                // gw/{farm_id}/{gw_id}/yieldtest
+                this.handleYieldTestMessage(parsedMessage);
+            } else if (topic.includes('/recovery')) {
+                // gw/{farm_id}/{gw_id}/recovery
+                this.handleRecoveryMessage(parsedMessage);
             }
 
             // Notify all listeners
@@ -484,13 +527,15 @@ class MQTTService {
                 raw: messageData
             });
 
+            await this.persistImportantPayload(topic, parsedMessage);
+
         } catch (error) {
             console.error('Error processing MQTT message:', error);
         }
     }
 
     /**
-     * Handle gw/{gw_id}/status  — v2.1 payload
+    * Handle gw/{farm_id}/{gw_id}/status  — v2.1 payload
      * { v, ts, motor: { st, active }, mode, trigger }
      */
     handleStatusMessage(message) {
@@ -510,7 +555,7 @@ class MQTTService {
     }
 
     /**
-     * Handle gw/{gw_id}/telemetry  — v2.1 payload
+    * Handle gw/{farm_id}/{gw_id}/telemetry  — v2.1 payload
      * { v, ts, el: {...}, hy: {...}, m: {...} }
      */
     handleTelemetryMessage(message) {
@@ -519,7 +564,7 @@ class MQTTService {
     }
 
     /**
-     * Handle gw/{gw_id}/error  — v2.1 payload
+    * Handle gw/{farm_id}/{gw_id}/error  — v2.1 payload
      * { v, ts, code, sev, desc, snap: { v, i, f } }
      */
     handleErrorMessage(message) {
@@ -528,7 +573,7 @@ class MQTTService {
     }
 
     /**
-     * Handle gw/{gw_id}/health  — v2.1 payload
+    * Handle gw/{farm_id}/{gw_id}/health  — v2.1 payload
      */
     handleHealthMessage(message) {
         console.log('Received health message (v2.1):', message);
@@ -536,11 +581,79 @@ class MQTTService {
     }
 
     /**
-     * Handle gw/{gw_id}/response  — ACK/NACK
+    * Handle gw/{farm_id}/{gw_id}/response  — ACK/NACK
      */
     handleResponseMessage(message) {
         console.log('Received command response (v2.1):', message);
+        const requestId = message?.request_id;
+        if (requestId && this.pendingCommands.has(requestId)) {
+            this.pendingCommands.delete(requestId);
+        }
         this.notifyListeners({ type: MESSAGE_TYPES.RESPONSE, response: message });
+    }
+
+    handleDisplayMessage(message) {
+        console.log('Received display message (v3.0):', message);
+        this.notifyListeners({ type: MESSAGE_TYPES.DISPLAY, display: message });
+    }
+
+    handleOtaMessage(message) {
+        console.log('Received OTA message (v3.0):', message);
+        this.notifyListeners({ type: MESSAGE_TYPES.OTA, ota: message });
+    }
+
+    handleYieldTestMessage(message) {
+        console.log('Received yieldtest message (v3.0):', message);
+        this.notifyListeners({ type: MESSAGE_TYPES.YIELDTEST, yieldtest: message });
+    }
+
+    handleRecoveryMessage(message) {
+        console.log('Received recovery message (v3.0):', message);
+        this.notifyListeners({ type: MESSAGE_TYPES.RECOVERY, recovery: message });
+    }
+
+    async persistImportantPayload(topic, payload) {
+        try {
+            const type = this.getPersistTypeFromTopic(topic);
+            if (!type) return;
+
+            const token = await StorageService.getAuthToken();
+            if (!token) return;
+
+            const baseUrl = normalizeUrl(API_BASE_URL);
+            if (!baseUrl) return;
+
+            await fetch(`${baseUrl}/farmer/mqtt/payload`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                    gatewayId: this.config.topics.gatewayId,
+                    topic,
+                    messageType: type,
+                    payloadVersion: payload?.v || PAYLOAD_VERSION,
+                    payloadTs: payload?.ts,
+                    payload,
+                }),
+            });
+        } catch (error) {
+            console.error('Failed to persist mqtt payload:', error?.message || error);
+        }
+    }
+
+    getPersistTypeFromTopic(topic) {
+        if (topic.includes('/telemetry')) return 'telemetry';
+        if (topic.includes('/status')) return 'status';
+        if (topic.includes('/display')) return 'display';
+        if (topic.includes('/error')) return 'error';
+        if (topic.includes('/response')) return 'response';
+        if (topic.includes('/health')) return 'health';
+        if (topic.includes('/ota')) return 'ota';
+        if (topic.includes('/yieldtest')) return 'yieldtest';
+        if (topic.includes('/recovery')) return 'recovery';
+        return null;
     }
 
     /**
@@ -652,6 +765,10 @@ class MQTTService {
      */
     getConnectionStatus() {
         return this.isConnected;
+    }
+
+    getLastPacketTimestamp() {
+        return this.latestPacketTs;
     }
 
     /**

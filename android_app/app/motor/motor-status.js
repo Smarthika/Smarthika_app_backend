@@ -1,229 +1,162 @@
-/**
- * MotorStatusScreen
- *
- * Mobile mirror of the SMARTHIKA GRC 16x2 LCD UI flow (Payload Ref v2.1).
- *
- * LCD Slot mapping
- * -------------------------------------------------------------------------
- * IDLE (rotate every 4 s)
- *   A  SMARTHIKA AGRO / System OK
- *   B  GSM: Connected / PRI:ONLINE SEC:--
- *   C  Uptime: HH:MM  / Mode: AUTO
- *   D  V:231V F:50Hz  / SYSTEM STANDBY
- *
- * RUNNING (rotate every 3 s)
- *   A  Motor On       / Runtime MM:SS
- *   B  V:230 I:4.2A   / PHASE MONITORING
- *   C  RUNNING TIME:  / HH:MM:SS
- *
- * FAULT -- immediate override: SYSTEM FAULT! / <desc>
- *
- * Manual pages (tabs): STATUS . NETWORK . ENERGY . SYS INFO .
- *                       RUNTIME . PHASE . SETTINGS
- */
-
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView,
-  Alert, RefreshControl, ActivityIndicator, Switch,
+  View,
+  Text,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+  RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../../components/context/AuthContext';
+import { router } from 'expo-router';
 import MQTTService from '../../components/services/mqttService';
-import { MESSAGE_TYPES, MOTOR_STATES, MOTOR_COMMANDS, MQTT_CONFIG } from '../../config/mqttConfig';
+import {
+  MESSAGE_TYPES,
+  MOTOR_COMMANDS,
+  MOTOR_STATES,
+  MQTT_CONFIG,
+} from '../../config/mqttConfig';
 
-// ── Format helpers (per UI Parameter Reference v1.0 §10) ─────────────────────
-const fmtV  = (v) => (v == null ? 'V:--'  : `V:${Math.round(v)}V`);
-const fmtI  = (i) => (i == null ? 'I:--'  : `I:${Number(i).toFixed(1)}A`);
-const fmtF  = (f) => (f == null ? 'F:--'  : `F:${Math.round(f)}Hz`);
-const avgV  = (arr) => arr && arr.length === 3 ? (arr[0] + arr[1] + arr[2]) / 3 : (arr?.[0] ?? null);
-const lineV = (vP)  => vP == null ? '--' : `LINE V: ${Math.round(vP * Math.sqrt(3))}V`;
+const MANUAL_PAGES = ['STATUS', 'NETWORK', 'ENERGY', 'SYS INFO', 'RUNTIME', 'PHASE', 'SETTINGS'];
 
+const LED_LABELS = [
+  'LINE1',
+  'LINE2',
+  'LINE3',
+  'MOTOR ON',
+  'MOTOR TRIP',
+  'SMART MODE',
+  'MANUAL MODE',
+  'NET1',
+  'NET2',
+  'NET3',
+];
+
+const LED_COLORS = [
+  '#ef4444',
+  '#f59e0b',
+  '#3b82f6',
+  '#22c55e',
+  '#ef4444',
+  '#16a34a',
+  '#2563eb',
+  '#22c55e',
+  '#a855f7',
+  '#0ea5e9',
+];
+
+const fmtV = (v) => (v == null ? 'V:--' : `V:${Math.round(v)}V`);
+const fmtI = (i) => (i == null ? 'I:--' : `I:${Number(i).toFixed(1)}A`);
+const fmtF = (f) => (f == null ? 'F:--' : `F:${Math.round(f)}Hz`);
 const fmtMMSS = (sec) => {
   if (sec == null) return '--:--';
-  const m = Math.floor(sec / 60), s = sec % 60;
-  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-};
-const fmtHHMMSS = (sec) => {
-  if (sec == null) return '--:--:--';
-  const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
-  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 };
 const fmtHHMM = (sec) => {
   if (sec == null) return '--:--';
-  const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60);
-  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-};
-const motorModeLabel = (op) => {
-  if (!op) return '--';
-  if (/star.?delta/i.test(op)) return 'Star-Delta';
-  if (/single/i.test(op)) return 'Single Co..';
-  return op;
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 };
 
-// ── LCD Card – mimics 16×2 green display ─────────────────────────────────────
-function LcdCard({ row0, row1, accent = 'green', dot }) {
-  const bg = accent === 'red' ? '#7f1d1d' : accent === 'yellow' ? '#713f12' : '#14532d';
-  return (
-    <View style={{
-      backgroundColor: bg, borderRadius: 12,
-      paddingHorizontal: 18, paddingVertical: 14, marginHorizontal: 2,
-      shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 6, elevation: 4,
-    }}>
-      <Text style={{ fontFamily: 'monospace', fontSize: 17, letterSpacing: 1.5, color: '#bbf7d0', fontWeight: '700', marginBottom: 6 }}>
-        {row0}
-      </Text>
-      <Text style={{ fontFamily: 'monospace', fontSize: 15, letterSpacing: 1.2, color: '#86efac', fontWeight: '500' }}>
-        {row1}
-      </Text>
-      {dot != null && (
-        <View style={{ flexDirection: 'row', marginTop: 10, gap: 5 }}>
-          {Array.from({ length: dot.total }).map((_,i) => (
-            <View key={i} style={{ width: 6, height: 6, borderRadius: 3,
-              backgroundColor: i === dot.active ? '#bbf7d0' : '#166534' }} />
-          ))}
-        </View>
-      )}
-    </View>
-  );
-}
+const getConnectionState = (lastPacketTs) => {
+  if (!lastPacketTs) return 'offline';
+  const age = Date.now() - lastPacketTs;
+  if (age < 20000) return 'normal';
+  if (age < 120000) return 'warning';
+  if (age < 600000) return 'offline';
+  return 'full-offline';
+};
 
-function Row({ label, value, valueColor }) {
-  return (
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-      <Text style={{ color: '#6b7280', fontSize: 13 }}>{label}</Text>
-      <Text style={{ color: valueColor || '#1f2937', fontWeight: '600', fontSize: 13 }}>{value ?? '--'}</Text>
-    </View>
-  );
-}
-
-function Section({ title, children }) {
-  return (
-    <View style={{
-      backgroundColor: '#fff', borderRadius: 12,
-      borderWidth: 1, borderColor: '#e5e7eb', padding: 14, marginBottom: 12,
-      shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
-    }}>
-      <Text style={{ fontSize: 11, fontWeight: '700', color: '#9ca3af',
-        textTransform: 'uppercase', marginBottom: 10, letterSpacing: 0.8 }}>
-        {title}
-      </Text>
-      {children}
-    </View>
-  );
-}
-
-const PAGES = ['STATUS','NETWORK','ENERGY','SYS INFO','RUNTIME','PHASE','SETTINGS'];
-
-// ─────────────────────────────────────────────────────────────────────────────
 export default function MotorStatusScreen() {
-  const { user } = useAuth();
-
-  const [isLoading,    setIsLoading]    = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isConnected,  setIsConnected]  = useState(false);
-  const [motorState,   setMotorState]   = useState({
-    isOn: false, status: null, mode: null, trigger: null, lastUpdated: null,
-  });
-  const [telemetry,    setTelemetry]    = useState(null);   // { el, hy, m }
-  const [healthData,   setHealthData]   = useState(null);   // { net, sys, conf }
-  const [faultData,    setFaultData]    = useState(null);   // { code, sev, desc, snap }
-  const [activePage,   setActivePage]   = useState(0);
-  const [slotIndex,    setSlotIndex]    = useState(0);
-  const [cmdPending,   setCmdPending]   = useState(false);
-  const [requestedOn,  setRequestedOn]  = useState(null);
-  const requestedOnRef = useRef(null);
+  const [isConnected, setIsConnected] = useState(false);
 
-  // Slot rotation
-  const isRunning = motorState.isOn
-    || motorState.status === MOTOR_STATES.RUNNING_STAR
-    || motorState.status === MOTOR_STATES.RUNNING_DELTA;
-  const slotCount = isRunning ? 3 : 4;
-  const slotMs    = isRunning ? 3000 : 4000;
+  const [telemetry, setTelemetry] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [health, setHealth] = useState(null);
+  const [error, setError] = useState(null);
+  const [response, setResponse] = useState(null);
+  const [display, setDisplay] = useState(null);
+  const [ota, setOta] = useState(null);
+  const [yieldTest, setYieldTest] = useState(null);
 
-  useEffect(() => {
-    if (activePage !== 0 || faultData) return;
-    setSlotIndex(0);
-    const t = setInterval(() => setSlotIndex(i => (i + 1) % slotCount), slotMs);
-    return () => clearInterval(t);
-  }, [isRunning, activePage, faultData, slotCount, slotMs]);
+  const [manualPage, setManualPage] = useState(0);
+  const [isCommandPending, setIsCommandPending] = useState(false);
 
-  // ── MQTT handler ──────────────────────────────────────────────────────────
-  const handleMQTT = useCallback((event) => {
-    switch (event.type) {
-      case MESSAGE_TYPES.MOTOR_STATUS: {
-        const mSt = event.status?.motor?.st;
-        if (mSt !== undefined) {
-          const isOn = mSt === MOTOR_STATES.RUNNING_STAR || mSt === MOTOR_STATES.RUNNING_DELTA;
-          setMotorState(prev => ({
-            ...prev, isOn, status: mSt,
-            mode: event.status?.mode,
-            trigger: event.status?.trigger,
-            lastUpdated: new Date().toISOString(),
-          }));
-        }
-        if (event.status?.motor?.st !== MOTOR_STATES.FAULT) setFaultData(null);
-        setCmdPending(false);
-        setRequestedOn(null);
-        requestedOnRef.current = null;
-        break;
-      }
-      case MESSAGE_TYPES.TELEMETRY:
-        setTelemetry(event.telemetry || null);
-        if (event.telemetry?.m?.st) {
-          const mSt = event.telemetry.m.st;
-          setMotorState(prev => ({
-            ...prev,
-            isOn: mSt === MOTOR_STATES.RUNNING_STAR || mSt === MOTOR_STATES.RUNNING_DELTA,
-            status: mSt,
-          }));
-        }
-        break;
-      case MESSAGE_TYPES.HEALTH:
-        setHealthData(event.health || null);
-        break;
-      case MESSAGE_TYPES.ERROR:
-        setFaultData(event.error || null);
-        break;
-      case MESSAGE_TYPES.MOTOR_COMMAND:
-        if (event.success === false) {
-          setCmdPending(false);
-          setRequestedOn(null);
-          requestedOnRef.current = null;
-          Alert.alert('Command Error', 'Failed to send command to gateway');
-        }
-        break;
-      default: break;
-    }
+  const lastPacketRef = useRef(null);
+  const [connectionState, setConnectionState] = useState('offline');
+
+  const refreshConnectionState = useCallback(() => {
+    const packetTs = MQTTService.getLastPacketTimestamp();
+    lastPacketRef.current = packetTs;
+    setIsConnected(MQTTService.getConnectionStatus());
+    setConnectionState(getConnectionState(packetTs));
   }, []);
 
-  // ── Lifecycle ──────────────────────────────────────────────────────────────
-  useEffect(() => {
-    init();
-    MQTTService.addListener(handleMQTT);
-    const iv = setInterval(() => setIsConnected(MQTTService.getConnectionStatus()), 2000);
-    return () => {
-      MQTTService.removeListener(handleMQTT);
-      clearInterval(iv);
-    };
-  }, [handleMQTT]);
+  const handleMqttEvent = useCallback((event) => {
+    refreshConnectionState();
 
-  const init = async () => {
+    switch (event.type) {
+      case MESSAGE_TYPES.TELEMETRY:
+        setTelemetry(event.telemetry || null);
+        break;
+      case MESSAGE_TYPES.MOTOR_STATUS:
+        setStatus(event.status || null);
+        break;
+      case MESSAGE_TYPES.HEALTH:
+        setHealth(event.health || null);
+        break;
+      case MESSAGE_TYPES.ERROR:
+        setError(event.error || null);
+        break;
+      case MESSAGE_TYPES.RESPONSE:
+        setResponse(event.response || null);
+        setIsCommandPending(false);
+        if (event.response?.result === 'rejected') {
+          Alert.alert('Command Rejected', event.response?.reason_code || 'Unknown rejection');
+        }
+        break;
+      case MESSAGE_TYPES.DISPLAY:
+        setDisplay(event.display || null);
+        break;
+      case MESSAGE_TYPES.OTA:
+        setOta(event.ota || null);
+        break;
+      case MESSAGE_TYPES.YIELDTEST:
+        setYieldTest(event.yieldtest || null);
+        break;
+      default:
+        break;
+    }
+  }, [refreshConnectionState]);
+
+  const init = useCallback(async () => {
     try {
       setIsLoading(true);
       await MQTTService.initialize();
-      await MQTTService.loadMotorState();
-      const s = MQTTService.getMotorState();
-      if (s) setMotorState(prev => ({ ...prev, ...s }));
-      setIsConnected(MQTTService.getConnectionStatus());
+      refreshConnectionState();
     } catch (e) {
-      Alert.alert('Error', 'Failed to connect to motor control system');
+      Alert.alert('Error', 'Failed to initialize motor controller stream');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [refreshConnectionState]);
+
+  useEffect(() => {
+    init();
+    MQTTService.addListener(handleMqttEvent);
+    const iv = setInterval(refreshConnectionState, 2000);
+    return () => {
+      MQTTService.removeListener(handleMqttEvent);
+      clearInterval(iv);
+    };
+  }, [handleMqttEvent, init, refreshConnectionState]);
 
   const onRefresh = async () => {
     setIsRefreshing(true);
@@ -231,370 +164,372 @@ export default function MotorStatusScreen() {
     setIsRefreshing(false);
   };
 
-  // ── Power toggle ───────────────────────────────────────────────────────────
-  const handleToggle = async (value) => {
-    if (!isConnected) {
-      Alert.alert('Offline', 'Not connected to gateway', [
-        { text: 'Retry', onPress: init },
-        { text: 'Cancel', style: 'cancel' },
-      ]);
-      return;
-    }
-    setCmdPending(true);
-    setRequestedOn(value);
-    requestedOnRef.current = value;
-    try {
-      if (value) await MQTTService.turnMotorOn();
-      else       await MQTTService.turnMotorOff();
-    } catch (e) {
-      Alert.alert('Error', 'Failed to send command');
-      setCmdPending(false);
-      setRequestedOn(null);
-      requestedOnRef.current = null;
-    }
-  };
+  const isFault = Boolean(error);
+  const activeTest = status?.active_test || null;
+  const isYieldTestActive = activeTest === 'yield_test';
 
-  // ── LCD slot data ─────────────────────────────────────────────────────────
-  const el   = telemetry?.el;
-  const m    = telemetry?.m;
-  const hy   = telemetry?.hy;
-  const net  = healthData?.net;
-  const sys  = healthData?.sys;
-  const conf = healthData?.conf;
-  const vAvg    = el?.v ? avgV(el.v) : null;
-  const vPhaseR = el?.v?.[0] ?? null;
-  const iPhaseR = el?.i?.[0] ?? null;
+  const otaMode = useMemo(() => {
+    const otaState = String(ota?.state || ota?.status || '').toLowerCase();
+    if (otaState.includes('start') || otaState.includes('progress') || otaState.includes('running')) return 'active';
+    return 'idle';
+  }, [ota]);
 
-  const idleSlots = [
-    { row0: 'SMARTHIKA AGRO',  row1: 'System OK' },
-    {
-      row0: net?.connected ? 'GSM: Connected'    : 'GSM: Searching..',
-      row1: net?.connected ? 'PRI:ONLINE  SEC:--' : 'PRI:--  SEC:--',
-    },
-    { row0: `Uptime: ${fmtHHMM(sys?.upt)}`,  row1: `Mode: ${(conf?.mode || motorState.mode || 'AUTO').toUpperCase()}` },
-    { row0: `${fmtV(vAvg)} ${fmtF(el?.f)}`, row1: 'SYSTEM STANDBY' },
-  ];
-  const runSlots = [
-    {
-      row0: motorState.status === MOTOR_STATES.RUNNING_DELTA ? 'Motor On (Delta)' : 'Motor On',
-      row1: `Runtime ${fmtMMSS(m?.srt)}`,
-    },
-    { row0: `${fmtV(vPhaseR)} ${fmtI(iPhaseR)}`, row1: 'PHASE MONITORING' },
-    { row0: 'RUNNING TIME:',                       row1: fmtHHMMSS(m?.srt) },
-  ];
+  const isOtaActive = otaMode === 'active';
 
-  const lcdSlot = isRunning ? runSlots[slotIndex % 3] : idleSlots[slotIndex % 4];
-  const lcdDisplay = faultData
-    ? { row0: 'SYSTEM FAULT!', row1: faultData.desc || faultData.code || 'Unknown fault', accent: 'red' }
-    : { ...lcdSlot, accent: 'green' };
+  const controlsDisabled = !isConnected || isOtaActive || connectionState === 'full-offline';
 
-  // ── Motor state label ─────────────────────────────────────────────────────
-  const stateLabel = () => {
-    switch (motorState.status) {
-      case MOTOR_STATES.IDLE:          return { text: 'Stopped',         color: '#ef4444' };
-      case MOTOR_STATES.RUNNING_STAR:  return { text: 'Running (Star)',   color: '#10b981' };
-      case MOTOR_STATES.RUNNING_DELTA: return { text: 'Running (Delta)',  color: '#10b981' };
-      case MOTOR_STATES.FAULT:         return { text: 'FAULT',            color: '#f97316' };
-      default: return {
-        text: motorState.status ? motorState.status.toUpperCase() : 'Unknown',
-        color: '#9ca3af',
+  const motorStateCode = status?.motor?.st || telemetry?.m?.st || MOTOR_STATES.UNKNOWN;
+  const motorRunning = motorStateCode === MOTOR_STATES.RUNNING_STAR || motorStateCode === MOTOR_STATES.RUNNING_DELTA;
+
+  const ledState = useMemo(() => {
+    const leds = Array.isArray(display?.leds) && display.leds.length === 10
+      ? display.leds.map((value) => Boolean(value))
+      : Array(10).fill(false);
+    return leds;
+  }, [display]);
+
+  const lcd = useMemo(() => {
+    if (display?.lcd) {
+      return {
+        row0: String(display.lcd.row0 || ''),
+        row1: String(display.lcd.row1 || ''),
+        source: 'display',
       };
     }
-  };
-  const { text: stLabel, color: stColor } = stateLabel();
 
-  // ── Loading ───────────────────────────────────────────────────────────────
+    if (isFault) {
+      return {
+        row0: 'SYSTEM FAULT!',
+        row1: String(error?.desc || error?.code || 'Unknown fault'),
+        source: 'error',
+      };
+    }
+
+    if (isOtaActive) {
+      return {
+        row0: 'FW UPGRADE',
+        row1: String(ota?.step || ota?.progress || 'In progress'),
+        source: 'ota',
+      };
+    }
+
+    if (!telemetry) {
+      return {
+        row0: 'WAITING FOR DATA',
+        row1: connectionState === 'full-offline' ? 'DEVICE OFFLINE' : '... ',
+        source: 'none',
+      };
+    }
+
+    if (motorRunning) {
+      return {
+        row0: motorStateCode === MOTOR_STATES.RUNNING_DELTA ? 'Motor On (Delta)' : 'Motor On',
+        row1: `Runtime ${fmtMMSS(telemetry?.m?.srt)}`,
+        source: 'telemetry',
+      };
+    }
+
+    return {
+      row0: `${fmtV(telemetry?.el?.v?.[0])} ${fmtF(telemetry?.el?.f)}`,
+      row1: `Mode ${(status?.mode || 'auto').toUpperCase()}`,
+      source: 'telemetry',
+    };
+  }, [display, isFault, error, isOtaActive, ota, telemetry, motorRunning, motorStateCode, connectionState, status]);
+
+  const sendCmd = async (cmd, params = {}) => {
+    if (controlsDisabled) {
+      Alert.alert('Unavailable', 'Command is disabled due to connectivity/OTA state.');
+      return;
+    }
+
+    try {
+      setIsCommandPending(true);
+      await MQTTService.sendCommand(cmd, params);
+    } catch (e) {
+      setIsCommandPending(false);
+      Alert.alert('Error', 'Failed to publish command');
+    }
+  };
+
+  const handleStart = () => sendCmd(MOTOR_COMMANDS.PUMP_START);
+  const handleStop = () => sendCmd(MOTOR_COMMANDS.PUMP_STOP);
+  const handleModeToggle = () => {
+    const mode = String(status?.mode || 'auto').toLowerCase() === 'auto' ? 'manual' : 'auto';
+    sendCmd(MOTOR_COMMANDS.MODE_CHANGE, { mode });
+  };
+  const handleFaultReset = () => sendCmd(MOTOR_COMMANDS.CMD_FAULT_RESET);
+  const handleAbortYieldTest = () => sendCmd(MOTOR_COMMANDS.YIELD_TEST_STOP);
+
   if (isLoading) {
     return (
-      <View style={{ flex:1, backgroundColor:'#f0fdf4', justifyContent:'center', alignItems:'center' }}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f0fdf4' }}>
         <StatusBar style="dark" />
-        <View style={{ width:80, height:80, backgroundColor:'#3b82f6', borderRadius:40,
-          justifyContent:'center', alignItems:'center', marginBottom:20 }}>
-          <Ionicons name="water" size={32} color="#fff" />
-        </View>
-        <Text style={{ fontSize:18, fontWeight:'600', color:'#1f2937', marginBottom:16 }}>
-          Connecting to Gateway...
-        </Text>
-        <ActivityIndicator size="large" color="#3b82f6" />
+        <ActivityIndicator size="large" color="#2563eb" />
+        <Text style={{ marginTop: 12, color: '#1f2937' }}>Connecting to SMARTHIKA...</Text>
       </View>
     );
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  const connectionLabel = connectionState === 'normal'
+    ? 'Connected'
+    : connectionState === 'warning'
+      ? 'Weak/Delayed'
+      : connectionState === 'offline'
+        ? 'Offline'
+        : 'Full Offline';
+
+  const connectionColor = connectionState === 'normal'
+    ? '#16a34a'
+    : connectionState === 'warning'
+      ? '#d97706'
+      : '#dc2626';
+
   return (
     <View style={{ flex: 1, backgroundColor: '#f0fdf4', marginTop: 20 }}>
       <StatusBar style="dark" />
 
-      {/* ── Header ── */}
-      <View style={{
-        backgroundColor: '#fff', paddingTop: 48, paddingBottom: 12, paddingHorizontal: 20,
-        shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4, elevation: 3,
-      }}>
-        <View style={{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom: 10 }}>
-          <TouchableOpacity onPress={() => router.back()}
-            style={{ width: 40, height: 40, justifyContent: 'center' }}>
-            <Ionicons name="arrow-back" size={24} color="#374151" />
+      <View style={{ backgroundColor: '#ffffff', paddingTop: 46, paddingBottom: 12, paddingHorizontal: 16 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={24} color="#1f2937" />
           </TouchableOpacity>
-          <Text style={{ fontSize: 18, fontWeight: '700', color: '#1f2937' }}>Motor Control</Text>
-          <TouchableOpacity onPress={onRefresh} disabled={isRefreshing}
-            style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'flex-end' }}>
-            <Ionicons name="refresh" size={20} color={isRefreshing ? '#9ca3af' : '#374151'} />
+          <Text style={{ fontSize: 18, fontWeight: '700', color: '#1f2937' }}>Motor Controller</Text>
+          <TouchableOpacity onPress={onRefresh}>
+            <Ionicons name="refresh" size={22} color="#1f2937" />
           </TouchableOpacity>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-          <View style={{ width: 8, height: 8, borderRadius: 4, marginRight: 6,
-            backgroundColor: isConnected ? '#10b981' : '#ef4444' }} />
-          <Text style={{ fontSize: 12, color: '#6b7280' }}>
-            {isConnected ? `Connected · ${MQTT_CONFIG.topics.gatewayId}` : 'Disconnected'}
-          </Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 8 }}>
+          <Text style={{ color: '#4b5563', fontSize: 12 }}>Gateway: {MQTT_CONFIG.topics.gatewayId}</Text>
+        </View>
+        <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 4 }}>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: connectionColor, marginRight: 6 }} />
+          <Text style={{ color: connectionColor, fontSize: 12, fontWeight: '600' }}>{connectionLabel}</Text>
         </View>
       </View>
 
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 32 }}
-        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />}>
+      {isFault && (
+        <View style={{ backgroundColor: '#fee2e2', borderBottomWidth: 1, borderBottomColor: '#ef4444', padding: 10 }}>
+          <Text style={{ color: '#991b1b', fontWeight: '700' }}>
+            Fault: {error?.code || error?.e_code || 'UNKNOWN'}
+          </Text>
+          <Text style={{ color: '#7f1d1d', marginTop: 2 }}>{error?.desc || 'Fault reported by device'}</Text>
+        </View>
+      )}
 
-        {/* ── LCD Display Card ── */}
-        <View style={{ paddingHorizontal: 16, paddingTop: 18, paddingBottom: 10 }}>
-          <LcdCard
-            row0={lcdDisplay.row0}
-            row1={lcdDisplay.row1}
-            accent={lcdDisplay.accent}
-            dot={!faultData ? { total: slotCount, active: slotIndex } : null}
-          />
+      {isOtaActive && (
+        <View style={{ backgroundColor: '#e0f2fe', borderBottomWidth: 1, borderBottomColor: '#0ea5e9', padding: 10 }}>
+          <Text style={{ color: '#075985', fontWeight: '700' }}>OTA in progress - controls disabled</Text>
+          <Text style={{ color: '#0c4a6e', marginTop: 2 }}>
+            {String(ota?.step || ota?.status || ota?.progress || 'Updating firmware')}
+          </Text>
+        </View>
+      )}
 
-          {/* Fault controls */}
-          {faultData && (
-            <TouchableOpacity
-              onPress={() => setFaultData(null)}
-              style={{ marginTop: 8, backgroundColor: '#dc2626', borderRadius: 8, paddingVertical: 8, alignItems: 'center' }}>
-              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>Acknowledge Fault</Text>
-            </TouchableOpacity>
-          )}
-          {faultData?.snap && (
-            <View style={{ marginTop: 8, backgroundColor: '#fef2f2', borderRadius: 8, padding: 10,
-              borderWidth: 1, borderColor: '#fca5a5' }}>
-              <Text style={{ fontSize: 11, color: '#991b1b', fontWeight: '700', marginBottom: 4 }}>Snapshot at Fault</Text>
-              <Text style={{ fontSize: 11, color: '#7f1d1d', fontFamily: 'monospace' }}>
-                V: {faultData.snap.v?.map(v => `${Math.round(v)}V`).join('  ')}
-              </Text>
-              <Text style={{ fontSize: 11, color: '#7f1d1d', fontFamily: 'monospace' }}>
-                I: {faultData.snap.i?.map(i => `${i}A`).join('  ')}   F: {faultData.snap.f}Hz
-              </Text>
-            </View>
-          )}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: 14, paddingBottom: 28 }}
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />}
+      >
+        <View style={{ backgroundColor: '#14532d', borderRadius: 12, padding: 14 }}>
+          <Text style={{ color: '#bbf7d0', fontFamily: 'monospace', fontSize: 18, fontWeight: '700' }}>{lcd.row0}</Text>
+          <Text style={{ color: '#86efac', fontFamily: 'monospace', fontSize: 15, marginTop: 6 }}>{lcd.row1}</Text>
+          <Text style={{ color: '#d1fae5', fontSize: 11, marginTop: 8 }}>source: {lcd.source}</Text>
         </View>
 
-        {/* ── Power Toggle ── */}
-        <View style={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-          <View style={{
-            backgroundColor: '#fff', borderRadius: 12,
-            borderWidth: 1.5, borderColor: isRunning ? '#6ee7b7' : '#fca5a5',
-            padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-            shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
-          }}>
-            <View>
-              <Text style={{ fontSize: 16, fontWeight: '700', color: '#1f2937' }}>Motor Power</Text>
-              <Text style={{ fontSize: 13, color: stColor, fontWeight: '600', marginTop: 2 }}>{stLabel}</Text>
-            </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              {cmdPending && <ActivityIndicator size="small" color="#3b82f6" />}
-              <Switch
-                value={requestedOn !== null ? requestedOn : motorState.isOn}
-                onValueChange={handleToggle}
-                trackColor={{ false: '#f3f4f6', true: '#3b82f6' }}
-                thumbColor="#ffffff"
-                disabled={!isConnected || cmdPending}
-              />
-            </View>
-          </View>
-        </View>
-
-        {/* ── Page tabs ── */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}
-          style={{ marginTop: 14 }} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
-          {PAGES.map((p, i) => (
-            <TouchableOpacity key={p} onPress={() => setActivePage(i)} style={{
-              paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
-              backgroundColor: activePage === i ? '#15803d' : '#e5e7eb',
-            }}>
-              <Text style={{ fontSize: 12, fontWeight: '700',
-                color: activePage === i ? '#fff' : '#374151' }}>{p}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {/* ── Page content ── */}
-        <View style={{ paddingHorizontal: 16, paddingTop: 14 }}>
-
-          {/* STATUS */}
-          {activePage === 0 && (
-            <>
-              <Section title="Motor State">
-                <Row label="State"       value={stLabel} valueColor={stColor} />
-                <Row label="Mode"        value={(motorState.mode || conf?.mode || '--')?.toUpperCase()} />
-                <Row label="Device"      value={MQTT_CONFIG.topics.gatewayId} />
-                <Row label="Last Update" value={motorState.lastUpdated
-                  ? new Date(motorState.lastUpdated).toLocaleTimeString() : '--'} />
-              </Section>
-              {el && (
-                <Section title="⚡ Electrical">
-                  <Row label="Voltage R / Y / B" value={el.v?.map(v => `${Math.round(v)}V`).join('  ')} />
-                  <Row label="Current R / Y / B" value={el.i?.map(i => `${Number(i).toFixed(1)}A`).join('  ')} />
-                  <Row label="Frequency"         value={el.f  != null ? `${Math.round(el.f)} Hz` : '--'} />
-                  <Row label="Power Factor"       value={el.pf ?? '--'} />
-                  <Row label="Total Power"        value={el.tp != null ? `${el.tp} W` : '--'} />
-                  <Row label="Imbalance"          value={el.imb != null ? `${el.imb}%` : '--'}
-                    valueColor={el.imb > 5 ? '#f97316' : undefined} />
-                  <Row label="Phase Sequence"     value={el.seq ?? '--'} />
-                </Section>
-              )}
-              {hy && (
-                <Section title="💧 Hydraulic">
-                  <Row label="Pressure"    value={hy.p    != null ? `${hy.p} Bar`    : '--'} />
-                  <Row label="Flow Rate"   value={hy.fl_m != null ? `${hy.fl_m} m³/h` : '--'} />
-                  <Row label="Total Vol."  value={hy.vol_t!= null ? `${hy.vol_t} L`   : '--'} />
-                  <Row label="Static Head" value={hy.st_h != null ? `${hy.st_h} m`    : '--'} />
-                </Section>
-              )}
-            </>
-          )}
-
-          {/* NETWORK */}
-          {activePage === 1 && (
-            <Section title="Network Status">
-              <Row label="Link"      value={net?.t ?? 'GSM/GPRS'} />
-              <Row label="Status"    value={net?.connected ? 'CONNECTED' : 'SEARCHING..'}
-                valueColor={net?.connected ? '#10b981' : '#f97316'} />
-              <Row label="RSSI"      value={net?.s  != null ? `${net.s} dBm` : '--'} />
-              <Row label="IP"        value={net?.ip  ?? '--'} />
-              <Row label="SIM ICCID" value={net?.sim ?? '--'} />
-              <Row label="Primary"   value={net?.connected ? 'ONLINE' : '--'} />
-              <Row label="Secondary" value="--" />
-            </Section>
-          )}
-
-          {/* ENERGY */}
-          {activePage === 2 && (
-            isRunning ? (
-              <>
-                <Section title="Page A — Voltage & Current">
-                  {[0,1,2].map(n => (
-                    <React.Fragment key={n}>
-                      <Row label={`Voltage ${['R','Y','B'][n]}`} value={fmtV(el?.v?.[n])} />
-                      <Row label={`Current ${['R','Y','B'][n]}`} value={fmtI(el?.i?.[n])} />
-                    </React.Fragment>
-                  ))}
-                  <Row label="" value="PHASE MONITORING" valueColor="#1d4ed8" />
-                </Section>
-                <Section title="Page B — Session Time">
-                  <Row label="Running Time" value={fmtHHMMSS(m?.srt)} />
-                </Section>
-              </>
-            ) : (
-              <Section title="Standby">
-                <Row label="Avg Voltage" value={fmtV(vAvg)} />
-                <Row label="Frequency"   value={fmtF(el?.f)} />
-                <Row label="" value="SYSTEM STANDBY" valueColor="#6b7280" />
-              </Section>
-            )
-          )}
-
-          {/* SYS INFO */}
-          {activePage === 3 && (
-            <Section title="System Info">
-              <Row label="Uptime"    value={`Uptime: ${fmtHHMM(sys?.upt)}`} />
-              <Row label="Mode"      value={`Mode: ${(conf?.mode || '--').toUpperCase()}`} />
-              <Row label="Firmware"  value={sys?.fw ?? '--'} />
-              <Row label="Mains AC"  value={sys?.ac == null ? '--' : sys.ac ? 'Present' : 'Absent'}
-                valueColor={sys?.ac ? '#10b981' : '#ef4444'} />
-              <Row label="Battery"   value={sys?.bv != null ? `${sys.bv} V` : '--'} />
-              <Row label="Battery %" value={sys?.bp != null ? `${sys.bp}%`  : '--'} />
-              <Row label="Pump HP"   value={conf?.hp != null ? `${conf.hp} HP` : '--'} />
-            </Section>
-          )}
-
-          {/* RUNTIME */}
-          {activePage === 4 && (
-            <Section title="Motor Runtime">
-              <Row label="Total Runtime"   value={`Total: ${fmtHHMM(m?.rt)}`} />
-              <Row label="Session Runtime" value={`Session: ${fmtMMSS(m?.srt)}`} />
-              <Row label="Operation Mode"  value={motorModeLabel(m?.op)} />
-              <Row label="Motor State"     value={stLabel} valueColor={stColor} />
-            </Section>
-          )}
-
-          {/* PHASE */}
-          {activePage === 5 && (
-            <>
-              <Section title="Phase Details">
-                <Row label="LINE V (calc)"   value={lineV(el?.v?.[0])} />
-                <Row label="" value="3-PHASE MONITOR" valueColor="#1d4ed8" />
-                <Row label="Phase R Voltage" value={fmtV(el?.v?.[0])} />
-                <Row label="Phase Y Voltage" value={fmtV(el?.v?.[1])} />
-                <Row label="Phase B Voltage" value={fmtV(el?.v?.[2])} />
-                <Row label="Avg Voltage"     value={fmtV(avgV(el?.v))} />
-              </Section>
-              <Section title="Phase Currents">
-                <Row label="Phase R"    value={fmtI(el?.i?.[0])} />
-                <Row label="Phase Y"    value={fmtI(el?.i?.[1])} />
-                <Row label="Phase B"    value={fmtI(el?.i?.[2])} />
-                <Row label="Imbalance"  value={el?.imb != null ? `${el.imb}%` : '--'}
-                  valueColor={el?.imb > 5 ? '#f97316' : undefined} />
-                <Row label="Phase Seq." value={el?.seq ?? '--'} />
-              </Section>
-            </>
-          )}
-
-          {/* SETTINGS */}
-          {activePage === 6 && (
-            <>
-              <Section title="Settings">
-                <Row label="Motor Mode"  value={motorModeLabel(m?.op ?? conf?.mode)} />
-                <Row label="Conf. Mode"  value={(conf?.mode || '--').toUpperCase()} />
-                <Row label="Pump HP"     value={conf?.hp != null ? `${conf.hp} HP` : '--'} />
-                <Row label="" value="Hold SET 3–4 s on device to toggle" valueColor="#6b7280" />
-              </Section>
-              <View style={{ gap: 10 }}>
-                <TouchableOpacity
-                  onPress={async () => {
-                    if (!isConnected) { Alert.alert('Offline', 'Not connected'); return; }
-                    await MQTTService.sendCommand(MOTOR_COMMANDS.MODE_CHANGE, { mode: 'auto' });
-                    Alert.alert('Sent', 'MODE_CHANGE auto sent to gateway');
-                  }}
-                  style={{ backgroundColor: '#15803d', borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}>
-                  <Text style={{ color: '#fff', fontWeight: '700' }}>Switch to AUTO mode</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={async () => {
-                    if (!isConnected) { Alert.alert('Offline', 'Not connected'); return; }
-                    await MQTTService.sendCommand(MOTOR_COMMANDS.MODE_CHANGE, { mode: 'manual' });
-                    Alert.alert('Sent', 'MODE_CHANGE manual sent to gateway');
-                  }}
-                  style={{ backgroundColor: '#1d4ed8', borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}>
-                  <Text style={{ color: '#fff', fontWeight: '700' }}>Switch to MANUAL mode</Text>
-                </TouchableOpacity>
+        <View style={{ marginTop: 12, backgroundColor: '#ffffff', borderRadius: 12, padding: 12 }}>
+          <Text style={{ fontWeight: '700', color: '#1f2937', marginBottom: 8 }}>LED Panel (display topic authoritative)</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+            {LED_LABELS.map((label, index) => (
+              <View key={label} style={{ width: '33%', marginBottom: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <View
+                    style={{
+                      width: 12,
+                      height: 12,
+                      borderRadius: 6,
+                      backgroundColor: ledState[index] ? LED_COLORS[index] : '#d1d5db',
+                      marginRight: 6,
+                    }}
+                  />
+                  <Text style={{ fontSize: 11, color: '#374151' }}>{label}</Text>
+                </View>
               </View>
-            </>
-          )}
-
-          {/* Reconnect button */}
-          {!isConnected && (
-            <TouchableOpacity onPress={init} style={{
-              marginTop: 16, backgroundColor: '#3b82f6', borderRadius: 10, paddingVertical: 14,
-              flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8,
-            }}>
-              <Ionicons name="refresh" size={18} color="#fff" />
-              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Reconnect to Gateway</Text>
-            </TouchableOpacity>
-          )}
-
-          {/* Footer info */}
-          <View style={{ marginTop: 18, backgroundColor: '#eff6ff', borderRadius: 10, padding: 12 }}>
-            <Text style={{ fontSize: 11, color: '#1e40af', textAlign: 'center', lineHeight: 17 }}>
-              {'Commands → gw/' + MQTT_CONFIG.topics.gatewayId + '/cmd\nStatus/Telemetry ← pushed on-change · v2.1'}
-            </Text>
+            ))}
           </View>
         </View>
+
+        <View style={{ marginTop: 12, backgroundColor: '#ffffff', borderRadius: 12, padding: 12 }}>
+          <Text style={{ fontWeight: '700', color: '#1f2937', marginBottom: 8 }}>Controls</Text>
+
+          {isYieldTestActive ? (
+            <TouchableOpacity
+              disabled={controlsDisabled || isCommandPending}
+              onPress={handleAbortYieldTest}
+              style={{
+                backgroundColor: controlsDisabled || isCommandPending ? '#9ca3af' : '#dc2626',
+                borderRadius: 10,
+                paddingVertical: 12,
+                alignItems: 'center',
+                marginBottom: 8,
+              }}
+            >
+              <Text style={{ color: '#ffffff', fontWeight: '700' }}>Abort Yield Test</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity
+                disabled={controlsDisabled || isCommandPending || isFault}
+                onPress={handleStart}
+                style={{
+                  flex: 1,
+                  backgroundColor: controlsDisabled || isCommandPending || isFault ? '#9ca3af' : '#16a34a',
+                  borderRadius: 10,
+                  paddingVertical: 12,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ color: '#ffffff', fontWeight: '700' }}>START</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                disabled={controlsDisabled || isCommandPending}
+                onPress={handleStop}
+                style={{
+                  flex: 1,
+                  backgroundColor: controlsDisabled || isCommandPending ? '#9ca3af' : '#dc2626',
+                  borderRadius: 10,
+                  paddingVertical: 12,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ color: '#ffffff', fontWeight: '700' }}>STOP</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+            <TouchableOpacity
+              disabled={controlsDisabled || isCommandPending}
+              onPress={handleModeToggle}
+              style={{
+                flex: 1,
+                backgroundColor: controlsDisabled || isCommandPending ? '#9ca3af' : '#2563eb',
+                borderRadius: 10,
+                paddingVertical: 12,
+                alignItems: 'center',
+              }}
+            >
+              <Text style={{ color: '#ffffff', fontWeight: '700' }}>MODE</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              disabled={controlsDisabled || isCommandPending}
+              onPress={handleFaultReset}
+              style={{
+                flex: 1,
+                backgroundColor: controlsDisabled || isCommandPending ? '#9ca3af' : '#4b5563',
+                borderRadius: 10,
+                paddingVertical: 12,
+                alignItems: 'center',
+              }}
+            >
+              <Text style={{ color: '#ffffff', fontWeight: '700' }}>SET (Fault Reset)</Text>
+            </TouchableOpacity>
+          </View>
+
+          {isCommandPending && (
+            <View style={{ marginTop: 10, flexDirection: 'row', alignItems: 'center' }}>
+              <ActivityIndicator size="small" color="#2563eb" />
+              <Text style={{ marginLeft: 8, color: '#1f2937' }}>Waiting for response...</Text>
+            </View>
+          )}
+
+          {response && (
+            <View style={{ marginTop: 10 }}>
+              <Text style={{ fontSize: 12, color: '#374151' }}>
+                Last response: {String(response?.result || 'unknown').toUpperCase()}
+                {response?.reason_code ? ` (${response.reason_code})` : ''}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        <View style={{ marginTop: 12, backgroundColor: '#ffffff', borderRadius: 12, padding: 12 }}>
+          <Text style={{ fontWeight: '700', color: '#1f2937', marginBottom: 8 }}>Manual Mode Pages</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+            {MANUAL_PAGES.map((page, index) => (
+              <TouchableOpacity
+                key={page}
+                onPress={() => setManualPage(index)}
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: 14,
+                  backgroundColor: manualPage === index ? '#15803d' : '#e5e7eb',
+                }}
+              >
+                <Text style={{ color: manualPage === index ? '#ffffff' : '#374151', fontSize: 11, fontWeight: '700' }}>
+                  {page}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <View style={{ marginTop: 10, borderTopWidth: 1, borderTopColor: '#e5e7eb', paddingTop: 10 }}>
+            {manualPage === 0 && (
+              <>
+                <Text style={{ color: '#1f2937' }}>State: {String(motorStateCode).toUpperCase()}</Text>
+                <Text style={{ color: '#1f2937' }}>Mode: {String(status?.mode || '--').toUpperCase()}</Text>
+              </>
+            )}
+            {manualPage === 1 && (
+              <>
+                <Text style={{ color: '#1f2937' }}>Connected: {String(telemetry?.net?.connected ?? health?.net?.connected ?? '--')}</Text>
+                <Text style={{ color: '#1f2937' }}>RSSI: {String(telemetry?.sys?.net_s ?? health?.sys?.net_s ?? '--')}</Text>
+              </>
+            )}
+            {manualPage === 2 && (
+              <>
+                <Text style={{ color: '#1f2937' }}>{fmtV(telemetry?.el?.v?.[0])}</Text>
+                <Text style={{ color: '#1f2937' }}>{fmtI(telemetry?.el?.i?.[0])}</Text>
+              </>
+            )}
+            {manualPage === 3 && (
+              <>
+                <Text style={{ color: '#1f2937' }}>Uptime: {fmtHHMM(telemetry?.sys?.upt ?? health?.sys?.upt)}</Text>
+                <Text style={{ color: '#1f2937' }}>Battery: {String(telemetry?.sys?.bp ?? health?.sys?.bp ?? '--')}%</Text>
+              </>
+            )}
+            {manualPage === 4 && (
+              <>
+                <Text style={{ color: '#1f2937' }}>Total Runtime: {fmtHHMM(telemetry?.m?.rt)}</Text>
+                <Text style={{ color: '#1f2937' }}>Session Runtime: {fmtMMSS(telemetry?.m?.srt)}</Text>
+              </>
+            )}
+            {manualPage === 5 && (
+              <>
+                <Text style={{ color: '#1f2937' }}>R: {fmtV(telemetry?.el?.v?.[0])}</Text>
+                <Text style={{ color: '#1f2937' }}>Y: {fmtV(telemetry?.el?.v?.[1])}</Text>
+                <Text style={{ color: '#1f2937' }}>B: {fmtV(telemetry?.el?.v?.[2])}</Text>
+              </>
+            )}
+            {manualPage === 6 && (
+              <>
+                <Text style={{ color: '#1f2937' }}>Operation: {String(telemetry?.m?.op || '--')}</Text>
+                <Text style={{ color: '#1f2937' }}>Dry Run Count: {String(telemetry?.m?.dry ?? '--')}</Text>
+              </>
+            )}
+          </View>
+        </View>
+
+        {isYieldTestActive && (
+          <View style={{ marginTop: 12, backgroundColor: '#fff7ed', borderRadius: 12, padding: 12 }}>
+            <Text style={{ fontWeight: '700', color: '#9a3412', marginBottom: 6 }}>Yield Test</Text>
+            <Text style={{ color: '#7c2d12' }}>Status: {String(yieldTest?.status || 'running')}</Text>
+            <Text style={{ color: '#7c2d12' }}>Step: {String(yieldTest?.step || status?.step || '--')}</Text>
+            <Text style={{ color: '#7c2d12' }}>Progress: {String(yieldTest?.progress ?? '--')}</Text>
+          </View>
+        )}
       </ScrollView>
     </View>
   );

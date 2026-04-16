@@ -1,11 +1,57 @@
 const bcrypt = require('bcryptjs');
 const Farmer = require('../models/farmer.model');
 const Land = require('../models/land.model');
+const FarmerDevice = require('../models/farmerDevice.model');
 
 const buildDate = () => new Date().toISOString().split('T')[0];
 
 const generateFarmerId = () => `farmer_${Date.now()}`;
 const generateUsername = (mobileNumber) => String(mobileNumber).trim();
+const generateDeviceId = () => `device_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+const DEVICE_CATALOG = {
+  motor_control: {
+    deviceKey: 'motor_control',
+    deviceName: 'Motor Control',
+    deviceType: 'Pump Motor Controller',
+  },
+  device_2: {
+    deviceKey: 'device_2',
+    deviceName: 'Device 2',
+    deviceType: 'Auxiliary Device 2',
+  },
+  device_3: {
+    deviceKey: 'device_3',
+    deviceName: 'Device 3',
+    deviceType: 'Auxiliary Device 3',
+  },
+};
+
+const normalizeDeviceList = async (farmerId) => {
+  const devices = await FarmerDevice.find({ farmerId }).sort({ createdAt: 1 });
+  return devices.map((device) => ({
+    deviceId: device.deviceId,
+    farmerId: device.farmerId,
+    deviceKey: device.deviceKey,
+    deviceName: device.deviceName,
+    deviceType: device.deviceType,
+    status: device.status,
+    assignedAt: device.assignedAt,
+    activatedAt: device.activatedAt,
+  }));
+};
+
+const syncFarmerDeviceStage = async (farmerId) => {
+  const deviceCount = await FarmerDevice.countDocuments({ farmerId });
+  await Farmer.updateOne(
+    { farmerId },
+    {
+      $set: {
+        stages_devices: deviceCount > 0 ? 'REQUESTED' : 'NOT_REQUESTED',
+      },
+    }
+  );
+};
 
 const normalizeFlowStatus = (status) => {
   const normalizedStatus = String(status || '').trim().toUpperCase();
@@ -27,9 +73,20 @@ const getSahayakFarmers = async (req, res) => {
       .sort({ createdAt: -1 })
       .select('farmerId name mobile village status registeredDate');
 
+    const farmerIds = farmers.map((farmer) => farmer.farmerId);
+    const deviceCounts = await FarmerDevice.aggregate([
+      { $match: { farmerId: { $in: farmerIds } } },
+      { $group: { _id: '$farmerId', count: { $sum: 1 } } },
+    ]);
+    const deviceCountMap = deviceCounts.reduce((acc, item) => {
+      acc[item._id] = item.count;
+      return acc;
+    }, {});
+
     const normalizedFarmers = farmers.map((farmer) => ({
       ...farmer.toObject(),
       status: normalizeFlowStatus(farmer.status),
+      deviceCount: deviceCountMap[farmer.farmerId] || 0,
     }));
 
     return res.json({
@@ -58,6 +115,8 @@ const getFarmerDetails = async (req, res) => {
       ...farmer.toObject(),
       status: normalizeFlowStatus(farmer.status),
     };
+
+    normalizedFarmer.devices = await normalizeDeviceList(farmerId);
 
     return res.json({ success: true, farmer: normalizedFarmer });
   } catch (error) {
@@ -227,6 +286,79 @@ const registerLand = async (req, res) => {
   }
 };
 
+const getFarmerDevices = async (req, res) => {
+  try {
+    const { farmerId } = req.params;
+
+    const farmer = await Farmer.findOne({ farmerId, sahayakId: req.user.sahayakId }).select('farmerId status stages_devices');
+    if (!farmer) {
+      return res.status(404).json({ success: false, message: 'Farmer not found' });
+    }
+
+    const devices = await normalizeDeviceList(farmerId);
+    return res.json({
+      success: true,
+      farmerId,
+      status: normalizeFlowStatus(farmer.status),
+      stage: farmer.stages_devices || (devices.length > 0 ? 'REQUESTED' : 'NOT_REQUESTED'),
+      devices,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to fetch farmer devices', error: error.message });
+  }
+};
+
+const saveFarmerDevices = async (req, res) => {
+  try {
+    const { farmerId } = req.params;
+    const { devices } = req.body;
+
+    if (!Array.isArray(devices)) {
+      return res.status(400).json({ success: false, message: 'devices must be an array' });
+    }
+
+    const farmer = await Farmer.findOne({ farmerId, sahayakId: req.user.sahayakId });
+    if (!farmer) {
+      return res.status(404).json({ success: false, message: 'Farmer not found' });
+    }
+
+    const selectedKeys = [...new Set(devices.map((device) => String(device || '').trim()))]
+      .filter((deviceKey) => Boolean(DEVICE_CATALOG[deviceKey]));
+
+    if (selectedKeys.length === 0) {
+      return res.status(400).json({ success: false, message: 'Select at least one valid device' });
+    }
+
+    await FarmerDevice.deleteMany({ farmerId });
+
+    const deviceDocs = selectedKeys.map((deviceKey) => {
+      const catalogItem = DEVICE_CATALOG[deviceKey];
+      return {
+        deviceId: generateDeviceId(),
+        farmerId,
+        sahayakId: req.user.sahayakId,
+        deviceKey: catalogItem.deviceKey,
+        deviceName: catalogItem.deviceName,
+        deviceType: catalogItem.deviceType,
+        status: 'ASSIGNED',
+        assignedAt: new Date(),
+      };
+    });
+
+    await FarmerDevice.insertMany(deviceDocs);
+
+    await syncFarmerDeviceStage(farmerId);
+
+    return res.json({
+      success: true,
+      message: 'Devices assigned successfully',
+      devices: await normalizeDeviceList(farmerId),
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to save farmer devices', error: error.message });
+  }
+};
+
 const setFarmerPassword = async (req, res) => {
   try {
     const { farmerId } = req.params;
@@ -285,4 +417,6 @@ module.exports = {
   completeKYC,
   registerLand,
   setFarmerPassword,
+  getFarmerDevices,
+  saveFarmerDevices,
 };

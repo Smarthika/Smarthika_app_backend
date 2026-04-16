@@ -212,6 +212,30 @@ class SahayakService {
       throw error;
     }
   }
+
+  static async getFarmerDevices(_token, farmerId) {
+    try {
+      const headers = await withAuth();
+      return await request(`/sahayak/farmer/${farmerId}/devices`, { headers });
+    } catch (error) {
+      console.error('Get farmer devices error:', error);
+      throw error;
+    }
+  }
+
+  static async saveFarmerDevices(_token, farmerId, devices) {
+    try {
+      const headers = await withAuth();
+      return await request(`/sahayak/farmer/${farmerId}/devices`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ devices }),
+      });
+    } catch (error) {
+      console.error('Save farmer devices error:', error);
+      throw error;
+    }
+  }
 }
 
 class FarmerService {

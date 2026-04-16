@@ -69,6 +69,7 @@ const SmarthikaController = ({
   const dot = lcdScreen?.dot;
 
   const indicatorColor = (active, activeColor) => (active ? activeColor : '#d1d5db');
+  const phaseColor = (active, activeColor) => (active ? activeColor : '#d1d5db');
 
   return (
     <View className="" style={{ minHeight: SCREEN_HEIGHT - 290, paddingTop: 40, paddingBottom: 200, paddingHorizontal: 20 }}>
@@ -88,10 +89,10 @@ const SmarthikaController = ({
       <View className="flex-row justify-center mb-8" style={{ gap: 70 }}>
         <View className="items-center">
           <View className="w-14 h-14 rounded-full shadow-2xl border-[1px] border-black" style={{ 
-            backgroundColor: '#ef4444',
-            shadowColor: '#ef4444',
+            backgroundColor: phaseColor(indicators?.phaseR, '#ef4444'),
+            shadowColor: phaseColor(indicators?.phaseR, '#ef4444'),
             shadowOffset: { width: 0, height: 0 },
-            shadowOpacity: 0.8,
+            shadowOpacity: indicators?.phaseR ? 0.8 : 0.2,
             shadowRadius: 12,
             elevation: 8
           }}></View>
@@ -99,10 +100,10 @@ const SmarthikaController = ({
         </View>
         <View className="items-center">
           <View className="w-14 h-14 rounded-full shadow-2xl border-[1px] border-black" style={{ 
-            backgroundColor: '#fbbf24',
-            shadowColor: '#fbbf24',
+            backgroundColor: phaseColor(indicators?.phaseY, '#fbbf24'),
+            shadowColor: phaseColor(indicators?.phaseY, '#fbbf24'),
             shadowOffset: { width: 0, height: 0 },
-            shadowOpacity: 0.8,
+            shadowOpacity: indicators?.phaseY ? 0.8 : 0.2,
             shadowRadius: 12,
             elevation: 8
           }}></View>
@@ -110,10 +111,10 @@ const SmarthikaController = ({
         </View>
         <View className="items-center">
           <View className="w-14 h-14 rounded-full shadow-2xl border-[1px] border-black" style={{ 
-            backgroundColor: '#3b82f6',
-            shadowColor: '#3b82f6',
+            backgroundColor: phaseColor(indicators?.phaseB, '#3b82f6'),
+            shadowColor: phaseColor(indicators?.phaseB, '#3b82f6'),
             shadowOffset: { width: 0, height: 0 },
-            shadowOpacity: 0.8,
+            shadowOpacity: indicators?.phaseB ? 0.8 : 0.2,
             shadowRadius: 12,
             elevation: 8
           }}></View>
@@ -203,6 +204,42 @@ const SmarthikaController = ({
             elevation: 6
           }}></View>
           <Text className="text-gray-700 text-xs font-semibold mt-2">MANUAL MODE</Text>
+        </View>
+      </View>
+
+      <View className="flex-row justify-center mb-8" style={{ gap: 24 }}>
+        <View className="items-center">
+          <View className="w-6 h-6 rounded-full border-[1px] border-black" style={{ 
+            backgroundColor: indicatorColor(indicators?.net1, '#22c55e'),
+            shadowColor: indicatorColor(indicators?.net1, '#22c55e'),
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: indicators?.net1 ? 0.9 : 0.2,
+            shadowRadius: 8,
+            elevation: 4
+          }}></View>
+          <Text className="text-gray-700 text-xs font-semibold mt-2">NET1</Text>
+        </View>
+        <View className="items-center">
+          <View className="w-6 h-6 rounded-full border-[1px] border-black" style={{ 
+            backgroundColor: indicatorColor(indicators?.net2, '#a855f7'),
+            shadowColor: indicatorColor(indicators?.net2, '#a855f7'),
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: indicators?.net2 ? 0.9 : 0.2,
+            shadowRadius: 8,
+            elevation: 4
+          }}></View>
+          <Text className="text-gray-700 text-xs font-semibold mt-2">NET2</Text>
+        </View>
+        <View className="items-center">
+          <View className="w-6 h-6 rounded-full border-[1px] border-black" style={{ 
+            backgroundColor: indicatorColor(indicators?.net3, '#0ea5e9'),
+            shadowColor: indicatorColor(indicators?.net3, '#0ea5e9'),
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: indicators?.net3 ? 0.9 : 0.2,
+            shadowRadius: 8,
+            elevation: 4
+          }}></View>
+          <Text className="text-gray-700 text-xs font-semibold mt-2">NET3</Text>
         </View>
       </View>
 
@@ -318,7 +355,14 @@ const SmarthikaController = ({
 };
 
 // Farm Details Cards Component
-const FarmDetailsCards = ({ onBackClick }) => {
+const FarmDetailsCards = ({ onBackClick, devices = [] }) => {
+  const assignedDevices = Array.isArray(devices) ? devices : [];
+  const hasMotorControl = assignedDevices.some((device) => {
+    const deviceKey = String(device?.deviceKey || '').toLowerCase();
+    const deviceName = String(device?.deviceName || '').toLowerCase();
+    return deviceKey === 'motor_control' || deviceName.includes('motor');
+  });
+
   return (
     <View className="bg-green-50 pt-4" style={{ minHeight: SCREEN_HEIGHT - 250, marginBottom: 10 }}>
       <View className="px-6 pb-2 flex-row items-center justify-between">
@@ -329,12 +373,43 @@ const FarmDetailsCards = ({ onBackClick }) => {
         </TouchableOpacity>
       </View>
 
-      {/* Motor Control Section */}
+      {/* Assigned Devices */}
       <View className="px-6 pb-4">
-        <MotorControl 
-          size="medium" 
-          showStatus={true} 
-        />
+        <View className="bg-white rounded-xl p-4 shadow-sm border-2 border-green-200 mb-4">
+          <Text className="text-gray-800 text-sm font-semibold mb-2">Assigned Devices</Text>
+          {assignedDevices.length > 0 ? (
+            <View className="flex-row flex-wrap">
+              {assignedDevices.map((device) => (
+                <View
+                  key={device.deviceId}
+                  className="bg-green-100 border border-green-200 rounded-full px-3 py-1 mr-2 mb-2"
+                >
+                  <Text className="text-green-800 text-xs font-semibold">
+                    {device.deviceName}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text className="text-gray-500 text-sm">
+              No devices have been assigned yet.
+            </Text>
+          )}
+        </View>
+
+        {hasMotorControl ? (
+          <MotorControl 
+            size="medium" 
+            showStatus={true} 
+          />
+        ) : (
+          <View className="bg-yellow-50 rounded-xl p-4 shadow-sm border-2 border-yellow-200">
+            <Text className="text-yellow-800 text-sm font-semibold mb-1">Motor Control Not Assigned</Text>
+            <Text className="text-yellow-700 text-sm">
+              Ask your Sahayak to assign the motor control device before using pump controls.
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Weather Card */}
@@ -518,8 +593,19 @@ export default function Home() {
   const [startupPhase, setStartupPhase] = useState('boot');
   const [gsmWaitStatus, setGsmWaitStatus] = useState('connecting');
   const [showProfilePanel, setShowProfilePanel] = useState(false);
+  const [statusLeds, setStatusLeds] = useState(null);
+  const [hasStatusPayload, setHasStatusPayload] = useState(false);
+  const [motorUiOn, setMotorUiOn] = useState(false);
+  const [isCommandPending, setIsCommandPending] = useState(false);
+  const [pendingMotorCommand, setPendingMotorCommand] = useState(null);
+  const [gsmStartupError, setGsmStartupError] = useState(null);
+  const [smartModeActive, setSmartModeActive] = useState(false);
+  const [smartModeError, setSmartModeError] = useState(null);
   const scrollViewRef = useRef(null);
   const gsmWaitStartRef = useRef(null);
+  const startupCmdSentRef = useRef(false);
+  const gsmErrorTimerRef = useRef(null);
+  const smartModeErrorTimerRef = useRef(null);
 
   const isApproved = farmerStatus?.overallStatus === 'APPROVED';
   const net = healthData?.net;
@@ -544,22 +630,91 @@ export default function Home() {
       case MESSAGE_TYPES.MOTOR_STATUS: {
         const status = event.status || {};
         const motorSt = status?.motor?.st;
+        const motorActive = typeof status?.motor?.active === 'boolean'
+          ? status.motor.active
+          : motorSt === MOTOR_STATES.RUNNING_STAR || motorSt === MOTOR_STATES.RUNNING_DELTA;
         if (motorSt !== undefined) {
           setMotorState(prev => ({
             ...prev,
-            isOn: motorSt === MOTOR_STATES.RUNNING_STAR || motorSt === MOTOR_STATES.RUNNING_DELTA,
+            isOn: motorActive,
             status: motorSt,
             mode: status?.mode || prev.mode,
             trigger: status?.trigger,
             lastUpdated: new Date().toISOString(),
           }));
         }
+        setMotorUiOn(Boolean(motorActive));
         if (status?.mode) {
           setLocalSystemMode(String(status.mode).toUpperCase());
         }
         if (motorSt !== MOTOR_STATES.FAULT) {
           setFaultData(null);
         }
+        if (status?.leds && typeof status.leds === 'object') {
+          setStatusLeds({
+            phase_1: Boolean(status.leds.phase_1),
+            phase_2: Boolean(status.leds.phase_2),
+            phase_3: Boolean(status.leds.phase_3),
+            motor_on: Boolean(status.leds.motor_on),
+            motor_trip: Boolean(status.leds.motor_trip),
+            smarthika: Boolean(status.leds.smarthika),
+            manual: Boolean(status.leds.manual),
+            net_1: Boolean(status.leds.net_1),
+            net_2: Boolean(status.leds.net_2),
+            net_3: Boolean(status.leds.net_3),
+          });
+          setHasStatusPayload(true);
+          setGsmStartupError(null);
+          if (gsmErrorTimerRef.current) {
+            clearTimeout(gsmErrorTimerRef.current);
+            gsmErrorTimerRef.current = null;
+          }
+          setGsmWaitStatus('connected');
+          if (status?.mode) {
+            setLocalSystemMode(String(status.mode).toUpperCase());
+          }
+        }
+        break;
+      }
+      case MESSAGE_TYPES.RESPONSE: {
+        const response = event.response || {};
+        const result = String(response?.result || '').toLowerCase();
+        const cmd = String(response?.cmd || pendingMotorCommand || '').toUpperCase();
+        const isStart = cmd === 'PUMP_START';
+        const isStop = cmd === 'PUMP_STOP';
+
+        setIsGatewayConnected(MQTTService.getConnectionStatus());
+
+        if (result === 'ok') {
+          const motorOn = isStart ? true : isStop ? false : motorUiOn;
+          setMotorUiOn(motorOn);
+          setMotorState(prev => ({
+            ...prev,
+            isOn: motorOn,
+            status: motorOn ? MOTOR_STATES.RUNNING_STAR : MOTOR_STATES.IDLE,
+            lastUpdated: new Date().toISOString(),
+          }));
+          setStatusLeds(prev => ({
+            ...(prev || {}),
+            motor_on: motorOn,
+          }));
+        } else if (result === 'rejected' || result === 'error') {
+          const motorOn = isStart ? false : isStop ? true : motorUiOn;
+          setMotorUiOn(motorOn);
+          setMotorState(prev => ({
+            ...prev,
+            isOn: motorOn,
+            status: motorOn ? MOTOR_STATES.RUNNING_STAR : MOTOR_STATES.IDLE,
+            lastUpdated: new Date().toISOString(),
+          }));
+          setStatusLeds(prev => ({
+            ...(prev || {}),
+            motor_on: motorOn,
+          }));
+        }
+
+        setPendingMotorCommand(null);
+        setIsCommandPending(false);
         break;
       }
       case MESSAGE_TYPES.TELEMETRY:
@@ -580,12 +735,31 @@ export default function Home() {
         }
         break;
       case MESSAGE_TYPES.ERROR:
-        setFaultData(event.error || null);
+        if (startupPhase === 'gsm-wait' || !hasStatusPayload) {
+          const errorDesc = String(event.error?.desc || event.error?.code || event.error?.message || 'Error');
+          setGsmStartupError(errorDesc);
+          setGsmWaitStatus('error');
+          setLocalSystemMode('MANUAL');
+          if (gsmErrorTimerRef.current) clearTimeout(gsmErrorTimerRef.current);
+          gsmErrorTimerRef.current = setTimeout(() => {
+            setGsmWaitStatus('manual');
+            setGsmStartupError(null);
+          }, 5000);
+        } else if (startupPhase === 'home' && smartModeActive) {
+          const errorDesc = String(event.error?.desc || event.error?.code || event.error?.message || 'Error');
+          setSmartModeError(errorDesc);
+          if (smartModeErrorTimerRef.current) clearTimeout(smartModeErrorTimerRef.current);
+          smartModeErrorTimerRef.current = setTimeout(() => {
+            setSmartModeError(null);
+          }, 5000);
+        } else {
+          setFaultData(event.error || null);
+        }
         break;
       default:
         break;
     }
-  }, []);
+  }, [startupPhase, hasStatusPayload, pendingMotorCommand, motorUiOn]);
 
   useEffect(() => {
     if (!isApproved) return;
@@ -623,6 +797,10 @@ export default function Home() {
     return () => {
       mounted = false;
       clearInterval(interval);
+      if (gsmErrorTimerRef.current) {
+        clearTimeout(gsmErrorTimerRef.current);
+        gsmErrorTimerRef.current = null;
+      }
       MQTTService.removeListener(handleMQTT);
     };
   }, [isApproved, handleMQTT]);
@@ -647,6 +825,7 @@ export default function Home() {
         setStartupPhase('gsm-wait');
         gsmWaitStartRef.current = Date.now();
         setGsmWaitStatus('connecting');
+        startupCmdSentRef.current = false;
       } else {
         setBootScreenIndex(prev => prev + 1);
       }
@@ -662,26 +841,40 @@ export default function Home() {
       gsmWaitStartRef.current = Date.now();
     }
 
-    if (net?.connected) {
+    if (!startupCmdSentRef.current && MQTTService.getConnectionStatus()) {
+      startupCmdSentRef.current = true;
+      MQTTService.sendStatusSync()
+        .catch((error) => {
+          console.warn('Failed to send STATUS_SYNC during gsm-wait:', error?.message || error);
+        });
+    }
+
+    if (hasStatusPayload) {
       setGsmWaitStatus('connected');
-      const timer = setTimeout(() => setStartupPhase('home'), 1200);
+      setGsmStartupError(null);
+      const timer = setTimeout(() => setStartupPhase('home'), 1000);
       return () => clearTimeout(timer);
     }
 
-    const elapsed = Date.now() - gsmWaitStartRef.current;
-    if (elapsed >= 120000) {
-      setGsmWaitStatus('manual');
-      setLocalSystemMode('MANUAL');
-      const timer = setTimeout(() => setStartupPhase('home'), 1200);
-      return () => clearTimeout(timer);
-    }
-
-    setGsmWaitStatus('connecting');
-    const timer = setTimeout(() => {
-      setGsmWaitStatus((current) => current);
+    const timer = setInterval(() => {
+      const elapsed = Date.now() - gsmWaitStartRef.current;
+      if (elapsed >= 120000 && gsmWaitStatus === 'connecting') {
+        setGsmWaitStatus('manual');
+        setLocalSystemMode('MANUAL');
+        setGsmStartupError(null);
+      }
+      if (!startupCmdSentRef.current && MQTTService.getConnectionStatus()) {
+        startupCmdSentRef.current = true;
+        MQTTService.sendStatusSync()
+          .catch((error) => {
+            console.warn('Failed to send STATUS_SYNC during gsm-wait:', error?.message || error);
+          });
+      }
     }, 1000);
-    return () => clearTimeout(timer);
-  }, [isApproved, startupPhase, net?.connected]);
+
+    setGsmWaitStatus((current) => current === 'error' || current === 'manual' ? current : 'connecting');
+    return () => clearInterval(timer);
+  }, [isApproved, startupPhase, hasStatusPayload, isGatewayConnected, gsmWaitStatus]);
 
   useEffect(() => {
     if (!isApproved || startupPhase !== 'home' || faultData || manualPageIndex !== 0) return;
@@ -719,6 +912,24 @@ export default function Home() {
       return () => clearTimeout(timer);
     }
   }, [isLoading, farmerStatus, startupPhase]);
+
+  useEffect(() => {
+    // Reset smartModeActive when leaving home phase
+    if (startupPhase !== 'home') {
+      setSmartModeActive(false);
+    }
+  }, [startupPhase]);
+
+  useEffect(() => {
+    // Show "System ok" for 5 seconds, then switch to "Smart Mode"
+    if (startupPhase !== 'home' || smartModeActive) return;
+
+    const timer = setTimeout(() => {
+      setSmartModeActive(true);
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, [startupPhase, smartModeActive]);
 
   // Refresh data when screen comes into focus
   useFocusEffect(
@@ -779,31 +990,29 @@ export default function Home() {
 
   const handleStartPress = async () => {
     if (startupPhase !== 'home') return;
-    if (!isGatewayConnected) {
-      await initializeGateway();
-      return;
-    }
+    if (!isGatewayConnected || isCommandPending || motorUiOn) return;
     try {
+      setIsCommandPending(true);
+      setPendingMotorCommand('PUMP_START');
       await MQTTService.turnMotorOn();
     } catch (error) {
+      setIsCommandPending(false);
+      setPendingMotorCommand(null);
       console.error('Failed to send start command:', error);
       Alert.alert('Command Error', 'Unable to start motor.');
     }
   };
 
   const handleStopPress = async () => {
-    if (startupPhase === 'gsm-wait') {
-      setGsmWaitStatus('manual');
-      setLocalSystemMode('MANUAL');
-      setStartupPhase('home');
-      return;
-    }
-
-    if (startupPhase !== 'home') return;
+    if (startupPhase !== 'home' || !isGatewayConnected || isCommandPending || !motorUiOn) return;
 
     try {
+      setIsCommandPending(true);
+      setPendingMotorCommand('PUMP_STOP');
       await MQTTService.turnMotorOff();
     } catch (error) {
+      setIsCommandPending(false);
+      setPendingMotorCommand(null);
       console.error('Failed to send stop command:', error);
       Alert.alert('Command Error', 'Unable to stop motor.');
     }
@@ -845,11 +1054,13 @@ export default function Home() {
     }
 
     if (startupPhase === 'gsm-wait') {
-      const row1 = gsmWaitStatus === 'connected'
-        ? 'System OK'
+      const row1 = gsmWaitStatus === 'error'
+        ? String(gsmStartupError || 'Error')
         : gsmWaitStatus === 'manual'
           ? 'Manual Mode'
-          : 'Connecting GSM..';
+          : gsmWaitStatus === 'connected'
+            ? 'System ok'
+            : 'Connecting to GSM';
       return {
         row0: 'SMARTHIKA AGRO',
         row1,
@@ -862,6 +1073,30 @@ export default function Home() {
         row0: 'SYSTEM FAULT!',
         row1: faultData.desc || faultData.code || 'Unknown fault',
         accent: '#fca5a5',
+      };
+    }
+
+    if (startupPhase === 'home') {
+      if (smartModeError) {
+        return {
+          row0: 'SMARTHIKA AGRO',
+          row1: smartModeError,
+          accent: '#fca5a5',
+        };
+      }
+
+      if (smartModeActive) {
+        return {
+          row0: 'SMARTHIKA AGRO',
+          row1: 'Smart Mode',
+          accent: '#93c23de8',
+        };
+      }
+
+      return {
+        row0: 'SMARTHIKA AGRO',
+        row1: 'System ok',
+        accent: '#93c23de8',
       };
     }
 
@@ -947,21 +1182,27 @@ export default function Home() {
       row1: 'Hold SET 3-4s',
       accent: '#93c23de8',
     };
-  }, [bootScreenIndex, bootSequence, startupPhase, gsmWaitStatus, faultData, el, net, sys, systemMode, isRunning, starterMode, m, manualPageIndex, statusSlotIndex, energySlotIndex]);
+  }, [bootScreenIndex, bootSequence, startupPhase, gsmWaitStatus, faultData, el, net, sys, systemMode, isRunning, starterMode, m, manualPageIndex, statusSlotIndex, energySlotIndex, smartModeActive, smartModeError]);
 
   const indicatorState = useMemo(() => ({
-    motorOn: isRunning,
-    motorTrip: !!faultData,
-    smartMode: systemMode === 'AUTO',
-    manualMode: systemMode === 'MANUAL',
-  }), [isRunning, faultData, systemMode]);
+    phaseR: bootScreenIndex < 0 && ((startupPhase === 'home' && hasStatusPayload) ? Boolean(statusLeds?.phase_1) : (startupPhase === 'gsm-wait' && (gsmWaitStatus === 'manual' || gsmWaitStatus === 'error'))),
+    phaseY: bootScreenIndex < 0 && ((startupPhase === 'home' && hasStatusPayload) ? Boolean(statusLeds?.phase_2) : (startupPhase === 'gsm-wait' && (gsmWaitStatus === 'manual' || gsmWaitStatus === 'error'))),
+    phaseB: bootScreenIndex < 0 && ((startupPhase === 'home' && hasStatusPayload) ? Boolean(statusLeds?.phase_3) : (startupPhase === 'gsm-wait' && (gsmWaitStatus === 'manual' || gsmWaitStatus === 'error'))),
+    motorOn: bootScreenIndex < 0 && startupPhase === 'home' ? Boolean(statusLeds?.motor_on ?? motorUiOn) : false,
+    motorTrip: bootScreenIndex < 0 && startupPhase === 'home' && hasStatusPayload ? Boolean(statusLeds?.motor_trip) : false,
+    smartMode: bootScreenIndex < 0 && startupPhase === 'home' && hasStatusPayload ? Boolean(statusLeds?.smarthika) : false,
+    manualMode: bootScreenIndex < 0 && ((startupPhase === 'home' && hasStatusPayload) ? Boolean(statusLeds?.manual) : (startupPhase === 'gsm-wait' && (gsmWaitStatus === 'manual' || gsmWaitStatus === 'error'))),
+    net1: bootScreenIndex < 0 && startupPhase === 'home' && hasStatusPayload ? Boolean(statusLeds?.net_1) : false,
+    net2: bootScreenIndex < 0 && startupPhase === 'home' && hasStatusPayload ? Boolean(statusLeds?.net_2) : false,
+    net3: bootScreenIndex < 0 && startupPhase === 'home' && hasStatusPayload ? Boolean(statusLeds?.net_3) : false,
+  }), [bootScreenIndex, startupPhase, gsmWaitStatus, hasStatusPayload, statusLeds, motorUiOn]);
 
   const controlState = useMemo(() => ({
-    startDisabled: startupPhase !== 'home' || isGatewayInitializing,
-    setDisabled: startupPhase !== 'home' || (!isManualMode && !faultData),
-    modeDisabled: startupPhase !== 'home' || isGatewayInitializing,
-    stopDisabled: isGatewayInitializing,
-  }), [startupPhase, isGatewayInitializing, isManualMode, faultData]);
+    startDisabled: startupPhase !== 'home' || isGatewayInitializing || !isGatewayConnected || isCommandPending || motorUiOn,
+    setDisabled: true,
+    modeDisabled: true,
+    stopDisabled: startupPhase !== 'home' || isGatewayInitializing || !isGatewayConnected || isCommandPending || !motorUiOn,
+  }), [startupPhase, isGatewayInitializing, isGatewayConnected, motorUiOn, isCommandPending]);
 
   const getStageIcon = (stage, status) => {
     const iconMap = {
@@ -979,6 +1220,7 @@ export default function Home() {
         return 'text-green-600';
       case 'PENDING': 
       case 'PENDING_VERIFICATION': 
+      case 'REQUESTED':
         return 'text-yellow-600';
       case 'NOT_REQUESTED': 
         return 'text-gray-400';
@@ -1004,6 +1246,7 @@ export default function Home() {
       return status === 'COMPLETED' ? 'Land records verified' : 'Land verification in progress';
     }
     if (stage === 'devices') {
+      if (status === 'REQUESTED') return 'Devices assigned and awaiting installation';
       return status === 'INSTALLED' ? 'Devices installed and active' : 'Device installation not initiated';
     }
     return 'Status unknown';
@@ -1235,7 +1478,7 @@ export default function Home() {
             controls={controlState}
           />
         ) : (
-          <FarmDetailsCards onBackClick={() => setShowFarmDetails(false)} />
+          <FarmDetailsCards onBackClick={() => setShowFarmDetails(false)} devices={farmerProfile?.devices || []} />
         )}
 
       </ScrollView>

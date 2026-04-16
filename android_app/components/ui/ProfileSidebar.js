@@ -218,6 +218,36 @@ export default function ProfileSidebar({ visible, onClose, farmerProfile, user }
                 </>
               )}
 
+              {/* Assigned Devices Section */}
+              {farmerProfile?.devices && farmerProfile.devices.length > 0 && (
+                <>
+                  <Text className="text-gray-500 text-xs font-semibold mb-3 uppercase">Assigned Devices</Text>
+
+                  <View className="bg-gray-50 rounded-lg p-4 mb-6">
+                    {farmerProfile.devices.map((device, index) => (
+                      <View
+                        key={device.deviceId || index}
+                        className={`${index !== 0 ? 'mt-4 pt-4 border-t border-gray-200' : ''}`}
+                      >
+                        <View className="flex-row items-center justify-between mb-1">
+                          <Text className="text-gray-800 font-semibold text-sm">
+                            {device.deviceName}
+                          </Text>
+                          <View className="bg-green-100 rounded-full px-2 py-0.5">
+                            <Text className="text-green-700 font-semibold text-xs">
+                              {device.status || 'ASSIGNED'}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text className="text-gray-500 text-xs">
+                          {device.deviceType}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </>
+              )}
+
               {/* Settings Section */}
               <Text className="text-gray-500 text-xs font-semibold mb-3 mt-6 uppercase">Settings</Text>
               
